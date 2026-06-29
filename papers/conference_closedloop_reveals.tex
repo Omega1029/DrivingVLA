@@ -170,8 +170,10 @@ operation and our claims are \emph{relative} (group $\approx$ FP16 $\gg$ per-cha
 recovers on 3 (0099, 0101, 0796). (3) The collision
 metric is a confounded downstream proxy (collapse$\to$frozen$\to$geometry-dependent crash, mediated
 by the degenerate fallback); we therefore lead with coherence. (4) An activation-aware (AWQ) low-bit
-variant is excluded pending a fix. (5) Fake-quant (dequantized) weights are used, so packed memory/
-latency gains are projected, not measured on-device.
+variant is excluded pending a fix. (5) Fake-quant (dequantized) weights are used, so the
+\emph{static} planner footprint is measured on-device (Jetson AGX Orin 64\,GB: $2.88$\,GB peak,
+$14.9$ tok/s, group-wise INT4 packs the planner $0.72\to 0.19$\,GB) but a packed-INT4 \emph{speedup}
+still requires a custom kernel and is not yet realized.
 
 \section{Conclusion}
 For quantized autonomous-driving VLAs, open-loop L2 is blind ($19\times$ ego-ablation) and

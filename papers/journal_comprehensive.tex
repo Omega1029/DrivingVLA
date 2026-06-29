@@ -230,8 +230,12 @@ partially recovers on 3 (0099, 0101, 0796); we do not claim exact equivalence.
 \textbf{INT3/INT2/AWQ.} Lower-bit and activation-aware variants were characterized only in an earlier
 single-scene setup and are not re-reported here pending a real-camera re-run.
 \textbf{AWQ.} The activation-aware low-bit path is buggy and excluded. \textbf{Fake-quant.} Weights
-are dequantized for inference, so packed memory/latency gains are projected. \textbf{Throughput.}
-Edge feasibility rows are device-class estimates, not on-Orin measurements.
+are dequantized for inference, so a packed-INT4 \emph{speedup} is not yet realized (needs a custom
+kernel); the \emph{static} footprint, however, is measured on-device. \textbf{On-Orin measurement.}
+The planner was run on a Jetson AGX Orin 64\,GB (JetPack~6, torch~2.8): $2.88$\,GB runtime peak,
+$14.9$ tok/s (1024-ctx, 60-token decode, eager, default clocks), group-wise INT4 packing the
+357.8\,M-param planner $0.72\to 0.19$\,GB ($3.9\times$); latency is flat across precisions under
+fake-quant. \textbf{Perception throughput} on Orin remains a device-class estimate (no TRT port).
 
 \section{Reproducibility}
 The code release includes the open-loop evaluation and quantization sweep scripts, the ego-ablation

@@ -10,8 +10,9 @@
 
 % ============================================================================
 % WORKSHOP PAPER 3 -- systems / edge-deployment + MEMORY BENCHMARKS
-% Footprints measured from the live model node (load + inference); deployment
-% feasibility reasoned from device specs. Marked clearly where estimated.
+% Footprints measured from the live model node (load + inference); planner now ALSO
+% measured on-device on a Jetson AGX Orin 64GB (JetPack 6, torch 2.8). Perception
+% throughput still reasoned from device specs. Marked clearly where estimated.
 % ============================================================================
 
 \title{\textbf{The Planner Is Free, Perception Is the Wall:\\
@@ -35,7 +36,10 @@ fits in $3$--$5$\,GB), and \emph{group-wise} INT4 (the form Orin's INT4 kernels 
 $\approx 0.1$ bits/weight while preserving generation coherence. The wall is \emph{perception}:
 UniAD's ResNet-101 over six $1600\times900$ cameras plus temporal BEVFormer dominates wall-clock,
 runs FP32 with custom CUDA ops, and is far from real-time on Orin without a TensorRT-INT8 port. We
-present in-memory benchmarks for the components and quantization levels, and argue that edge VLA
+present in-memory benchmarks for the components and quantization levels---including \emph{on-device
+measurements on a Jetson AGX Orin 64\,GB} (JetPack~6, torch~2.8): the 357.8\,M-parameter planner
+loads and runs in $2.88$\,GB peak at $14.9$ tok/s, with a static weight footprint dropping
+$0.72\to 0.19$\,GB ($3.9\times$) at group-wise INT4---and argue that edge VLA
 research effort is mis-allocated: the planner is free; perception is the gating cost.
 \end{abstract}
 
@@ -79,16 +83,46 @@ UniAD track+map perception   & bulk of $3$--$5$\,GB total  & FP32 (custom CUDA o
 \end{tabular}
 \end{table}
 
+\section{On-device measurement (Jetson AGX Orin 64\,GB)}
+We ran the planner on a real \textbf{NVIDIA Jetson AGX Orin Developer Kit} (64\,GB, JetPack~6 /
+L4T~R36.4.7, CUDA capability~8.7, PyTorch~2.8), loading the \emph{actual} OpenDriveVLA-0.5B
+Qwen2.5 decoder weights (291/291 tensors) and decoding $60$ trajectory tokens from a $1024$-token
+context (eager attention, default power mode, 30~iterations). Because our quantizer is fake-quant
+(dequantized to FP16, no packed-INT4 GEMM in this build), latency and \emph{runtime} memory are
+identical across precisions---confirming that the deployable win is the \emph{static weight
+footprint}, not speed, until a packed kernel is added.
+\begin{table}[h]\centering
+\caption{\textbf{Measured on Jetson AGX Orin 64\,GB} (JetPack 6, torch 2.8): OpenDriveVLA-0.5B
+planner, 1024-token context $\to$ 60 generated tokens, median of 30 runs. Packed-weight column is
+the true footprint if stored as packed INT$b$ + FP16 group scales.}
+\begin{tabular}{lcccc}
+\toprule
+Config & median latency & throughput & runtime peak & packed weights \\
+\midrule
+FP16             & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & $0.716$\,GB \\
+INT8 group-128   & $4.01$\,s & $15.0$ tok/s & $2.88$\,GB & $0.363$\,GB \\
+INT4 group-128   & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & \textbf{$0.185$\,GB} \\
+INT4 per-channel & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & $0.179$\,GB \\
+\bottomrule
+\end{tabular}
+\end{table}
+The planner loads in $13.6$\,s and the whole component runs in under $3$\,GB on Orin---trivial for a
+64\,GB board. Group-wise INT4 shrinks the stored planner $3.9\times$ ($0.716\to 0.185$\,GB) for
+$\approx 0.1$ extra bits/weight over per-channel. Latency is flat across precisions (fake-quant);
+the $\sim$15\,tok/s eager rate (clocks unpinned) is a conservative planner-only figure and excludes
+perception. Realizing the memory \emph{and} a speedup on-device requires a packed-INT4 kernel
+(e.g.\ Marlin/AWQ-style) and a TensorRT path---left as deployment engineering.
+
 \section{Edge feasibility}
 \begin{table}[h]\centering
-\caption{Deployment feasibility. Memory ``fits'' is from the $3$--$5$\,GB footprint; throughput is
-reasoned from device class (estimates, marked $^\dagger$).}
+\caption{Deployment feasibility. Orin AGX row is now \emph{measured} (planner); perception
+throughput remains reasoned from device class (estimates, marked $^\dagger$).}
 \begin{tabular}{lccc}
 \toprule
 Target & memory & planner & perception (real-time) \\
 \midrule
 A100 (reference)      & yes & trivial & yes \\
-Jetson AGX Orin 32/64\,GB & yes & trivial & no FP32; needs TRT-INT8 port$^\dagger$ \\
+Jetson AGX Orin 64\,GB & yes (meas.) & $2.88$\,GB, $14.9$ tok/s (meas.) & no FP32; needs TRT-INT8 port$^\dagger$ \\
 Jetson Orin NX 16\,GB & workable & trivial & hard$^\dagger$ \\
 Jetson Orin Nano 8\,GB & tight & ok & infeasible$^\dagger$ \\
 Raspberry Pi 5 (CPU) & planner fits & sec/plan via INT4 llama.cpp$^\dagger$ & infeasible (no CUDA, custom ops)$^\dagger$ \\

@@ -1,0 +1,69 @@
+{
+  "device": {
+    "torch": "2.8.0",
+    "cuda": true,
+    "gpu": "Orin",
+    "capability": "8.7",
+    "board": "NVIDIA Jetson AGX Orin Developer Kit",
+    "jetpack": "# R36 (release), REVISION: 4.7, GCID: 42132812, BOARD: generic, EABI: aarch64, DATE: Thu Sep 18 22:54:44 UTC 2025"
+  },
+  "args": {
+    "ckpt": "checkpoints/OpenDriveVLA-0.5B",
+    "seqlen": 1024,
+    "gen": 60,
+    "iters": 30,
+    "device": "cuda:0",
+    "dtype": "float16",
+    "out": "orin_planner_bench.json"
+  },
+  "runs": {
+    "fp16": {
+      "median_s": 4.01542012905702,
+      "min_s": 3.9965412910096347,
+      "max_s": 4.027390368981287,
+      "n_new_tokens": 60,
+      "tok_per_s": 14.942396579082343,
+      "peak_mem_gb": 2.877467648,
+      "runtime_quant": "none",
+      "weight_bytes_fp16": 715653120,
+      "weight_gb": 0.71565312
+    },
+    "int8_g128": {
+      "median_s": 4.0059131239540875,
+      "min_s": 3.99600509298034,
+      "max_s": 4.0287611780222505,
+      "n_new_tokens": 60,
+      "tok_per_s": 14.977858516506279,
+      "peak_mem_gb": 2.877467648,
+      "runtime_quant": "fake (dequant to float16)",
+      "packed_weight_bytes": 363417600.0,
+      "packed_weight_gb": 0.3634176
+    },
+    "w4_g128": {
+      "median_s": 4.016447460046038,
+      "min_s": 4.00189754110761,
+      "max_s": 4.037217045901343,
+      "n_new_tokens": 60,
+      "tok_per_s": 14.938574597789524,
+      "peak_mem_gb": 2.877467648,
+      "runtime_quant": "fake (dequant to float16)",
+      "packed_weight_bytes": 184504320.0,
+      "packed_weight_gb": 0.18450432
+    },
+    "w4_perchannel": {
+      "median_s": 4.01989310211502,
+      "min_s": 4.003932202933356,
+      "max_s": 4.03442647610791,
+      "n_new_tokens": 60,
+      "tok_per_s": 14.925770033146328,
+      "peak_mem_gb": 2.877467648,
+      "runtime_quant": "fake (dequant to float16)",
+      "packed_weight_bytes": 178913280.0,
+      "packed_weight_gb": 0.17891328
+    }
+  },
+  "weights_loaded": 291,
+  "weights_missing": 0,
+  "load_s": 13.568066349020228,
+  "backbone_linear_params": 357826560
+}
