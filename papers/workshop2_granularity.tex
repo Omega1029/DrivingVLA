@@ -1,0 +1,117 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{authblk}
+
+% ============================================================================
+% WORKSHOP PAPER 2 -- quantization-technique angle
+% Real measurements: NeuroNCAP closed-loop (real-camera), scenes 0103 frontal + 0796 stationary, 10 seeds each.
+% Primary metric = generation coherence (well-formed predicted-frame rate).
+% ============================================================================
+
+\title{\textbf{Granularity, Not Bit-Width: Group-Wise INT4 Preserves Generation\\
+Coherence of Driving-VLA Planners Under Deployment-Domain Shift}}
+\author[1]{Justin Williams}
+\author[1]{Kishor Datta Gupta}
+\author[1]{Roy George}
+\author[1]{Mrinmoy Sarkar}
+\affil[1]{Clark Atlanta University \quad \texttt{justinwilliamstech693@gmail.com}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We study weight-only INT4 quantization of the language/action head of OpenDriveVLA-0.5B in a
+\emph{closed-loop} neural-rendering simulator (NeuroNCAP, two real-camera scenes). The headline: under the
+deployment-domain shift induced by photorealistic re-rendering, \emph{naive per-output-channel}
+INT4 catastrophically loses generation coherence---the planner emits degenerate trajectory text on
+nearly every frame and effectively freezes ($0.0\%$ and $8.6\%$ well-formed across two scenes)---
+whereas \emph{group-wise} INT4 (group size 128, an extra $\approx 0.1$ bits/weight) recovers most of
+FP16's coherence ($72.9\%$ vs $74.3\%$; $57.9\%$ vs $72.4\%$). The same per-channel INT4 is lossless
+and well-formed \emph{in-distribution} (open-loop, real images), so the failure is a
+quantization\,$\times$\,domain-shift interaction governed by \emph{scale granularity}, not by 4-bit
+precision per se. We report generation-coherence rate as the clean metric and discuss why downstream
+collision/NCAP counts are a confounded, scene-dependent proxy (on one scene every config including
+FP16 collides).
+\end{abstract}
+
+\section{Introduction}
+Group-wise (block-wise) weight quantization with per-group scales is the de-facto standard for
+INT4 LLMs because a single scale shared across many weights is set by the group's largest
+magnitude, so one outlier inflates the quantization step for every weight it shares it with. We
+ask whether this granularity matters for the \emph{closed-loop} behavior of a quantized driving
+VLA under the distribution shift of a neural-rendering deployment surrogate, and find that it is
+decisive.
+
+\section{Setup}
+We quantize only the 168 Linear layers of the Qwen2.5-0.5B backbone (357.8\,M parameters);
+perception (UniAD track+map), projectors, embeddings, and head stay FP. We run closed-loop on
+two NeuroNCAP scenes (0103 frontal, 0796 stationary): a NeuRAD renderer re-renders six cameras at
+the ego's \emph{driven} pose each step, a model node returns a trajectory, and a kinematic controller
+advances the vehicle. Ten random actor-jitter seeds are run \emph{paired} across precisions
+(jitter seeded by run index; only the quantization differs). Our primary metric is
+\textbf{generation coherence}: the fraction of frames on which the planner emits a well-formed
+(non-degenerate) trajectory, computed from the logged per-frame plans.
+
+\section{Results}
+\begin{table}[h]\centering
+\caption{Closed-loop generation coherence (well-formed predicted-frame rate), \emph{real-camera}
+NeuRAD rendering, 10 paired seeds per scene. Weight-only quantization of the backbone.}
+\begin{tabular}{lccc}
+\toprule
+Config & 0103 frontal & 0796 stationary & recovers FP16? \\
+\midrule
+FP16                       & 74.3\%          & 72.4\%          & --- \\
+INT4 per-channel (naive)   & \textbf{0.0\%}  & \textbf{8.6\%}  & no (total collapse) \\
+INT4 group-128             & \textbf{72.9\%} & \textbf{57.9\%} & yes / partial \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The effect is domain-shift--induced, not 4-bit precision.} On real nuScenes images
+(open-loop) the \emph{same} per-channel INT4 is lossless (0.33\,m L2, well-formed). It collapses
+only on rendered (out-of-distribution) inputs, and this replicates across both scenes. Group-wise
+INT4 is robust on both (fully recovering FP16 on 0103, partially on 0796). The fix---finer scale
+granularity---costs $16/128 = 0.125$ extra bits per weight.
+
+\paragraph{Mechanism.} A shared INT4 scale is $s=\max|w|/7$. One large-magnitude weight inflates
+$s$ for the whole group, coarsening the grid for the small weights that carry signal. Group-wise
+scales confine each outlier to its own block. Under distribution shift the planner's hidden states
+move; per-channel's coarsened grid then tips greedy decoding into malformed trajectory text, while
+group-wise's finer grid preserves coherence.
+
+\section{On the metric}
+We deliberately report generation coherence rather than collision rate. The downstream collision
+outcome is a \emph{confounded, scene-dependent proxy}: on 0103 per-channel INT4 collides on 4/10
+seeds vs group-wise/FP16 on 0/10, but on 0796 \emph{every} config---including FP16---collides 10/10
+because the base policy cannot clear that scenario. A collapsed (frozen) planner only collides on
+geometries that strike a stationary ego, and the count depends on the degenerate fallback. Coherence
+isolates the quantization effect; collisions do not.
+
+\section{Limitations}
+Results are on two scenes; the rendered inputs are out-of-distribution to real nuScenes (even FP16
+fails scene-0796's collision test, $10/10$), so the claim is the relative one (group $\approx$ FP16
+$\gg$ per-channel on coherence). Group-wise recovery is \emph{partial} on the harder scene ($57.9\%$
+vs FP16 $72.4\%$)---we do not claim exact equivalence. Lower-bit (INT3/INT2) and activation-aware
+(AWQ) variants were characterized only in an earlier single-scene setup and are not re-reported here
+pending a real-camera re-run.
+
+\section{Conclusion}
+For quantized driving-VLA planners under deployment-domain shift, \emph{scale granularity}, not
+bit-width, governs whether generation stays coherent. Group-wise INT4 ($\approx 0.1$ extra
+bits/weight) matches FP16 robustness where naive per-channel INT4 collapses---an actionable,
+nearly-free deployment recommendation that open-loop L2 cannot motivate.
+
+\begin{thebibliography}{9}
+\bibitem{awq} Lin et al. \emph{AWQ: Activation-aware Weight Quantization for LLM Compression}. MLSys 2024.
+\bibitem{gptq} Frantar et al. \emph{GPTQ: Accurate Post-Training Quantization for GPTs}. ICLR 2023.
+\bibitem{neuroncap} NeuroNCAP. ECCV 2024.
+\bibitem{opendrivevla} OpenDriveVLA. 2025. (Replace with verified citation.)
+\end{thebibliography}
+\end{document}

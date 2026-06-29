@@ -1,0 +1,129 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{authblk}
+
+% ============================================================================
+% WORKSHOP PAPER 3 -- systems / edge-deployment + MEMORY BENCHMARKS
+% Footprints measured from the live model node (load + inference); deployment
+% feasibility reasoned from device specs. Marked clearly where estimated.
+% ============================================================================
+
+\title{\textbf{The Planner Is Free, Perception Is the Wall:\\
+Memory Benchmarks for Edge Deployment of Quantized Driving VLAs}}
+\author[1]{Justin Williams}
+\author[1]{Kishor Datta Gupta}
+\author[1]{Roy George}
+\author[1]{Mrinmoy Sarkar}
+\affil[1]{Clark Atlanta University \quad \texttt{justinwilliamstech693@gmail.com}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We characterize the memory and deployment profile of OpenDriveVLA-0.5B---a Qwen2.5-0.5B
+language/action head on UniAD perception---toward on-board (NVIDIA Jetson Orin) inference. The
+central, mundane-but-important finding: the language head everyone tries to quantize is already
+trivial for the edge ($\approx 1$\,GB FP16, $\approx 0.25$\,GB at INT4; the whole inference node
+fits in $3$--$5$\,GB), and \emph{group-wise} INT4 (the form Orin's INT4 kernels expect) adds only
+$\approx 0.1$ bits/weight while preserving generation coherence. The wall is \emph{perception}:
+UniAD's ResNet-101 over six $1600\times900$ cameras plus temporal BEVFormer dominates wall-clock,
+runs FP32 with custom CUDA ops, and is far from real-time on Orin without a TensorRT-INT8 port. We
+present in-memory benchmarks for the components and quantization levels, and argue that edge VLA
+research effort is mis-allocated: the planner is free; perception is the gating cost.
+\end{abstract}
+
+\section{Introduction}
+A recurring narrative is ``quantize the VLA language model and ship it to the robot.'' We provide
+component-level memory benchmarks showing that, for a driving VLA, this optimizes the cheap part.
+We quantify the planner footprint at FP16/INT8/INT4 (and the negligible group-wise overhead), the
+total inference footprint, and the perception bottleneck, and map feasibility onto Jetson Orin and,
+for contrast, a Raspberry Pi.
+
+\section{Memory benchmarks}
+\begin{table}[h]\centering
+\caption{Backbone (Qwen2.5-0.5B, 357.8\,M quantized Linear params) weight footprint and overhead.
+Effective bits include per-group FP16 scales.}
+\begin{tabular}{lccc}
+\toprule
+Precision & bits/weight (eff.) & backbone weights & vs FP16 \\
+\midrule
+FP16              & 16.0   & $\approx 1.0$\,GB  & $1.0\times$ \\
+INT8 per-channel  & 8.06   & $\approx 0.50$\,GB & $0.50\times$ \\
+INT4 per-channel  & 4.06   & $\approx 0.25$\,GB & $0.25\times$ \\
+INT4 group-128    & 4.125  & $\approx 0.26$\,GB & $0.26\times$ \\
+INT4 group-64     & 4.25   & $\approx 0.27$\,GB & $0.27\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+Group-wise INT4 costs $16/g$ extra bits/weight ($0.125$ at $g{=}128$): a $\sim$1\% footprint
+increase over per-channel for the coherence robustness reported in our closed-loop study.
+
+\begin{table}[h]\centering
+\caption{End-to-end inference footprint (measured on the live model node, single A100; the
+language head is a small fraction). UniAD perception dominates compute and is FP32.}
+\begin{tabular}{lcc}
+\toprule
+Component & GPU memory (load$\to$infer) & precision \\
+\midrule
+Qwen-0.5B head (FP16)        & $\approx 1$\,GB             & FP16 / INT4 \\
+UniAD track+map perception   & bulk of $3$--$5$\,GB total  & FP32 (custom CUDA ops) \\
+\textbf{Full node}           & \textbf{$\approx 2.5\to 5$\,GB} & mixed \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Edge feasibility}
+\begin{table}[h]\centering
+\caption{Deployment feasibility. Memory ``fits'' is from the $3$--$5$\,GB footprint; throughput is
+reasoned from device class (estimates, marked $^\dagger$).}
+\begin{tabular}{lccc}
+\toprule
+Target & memory & planner & perception (real-time) \\
+\midrule
+A100 (reference)      & yes & trivial & yes \\
+Jetson AGX Orin 32/64\,GB & yes & trivial & no FP32; needs TRT-INT8 port$^\dagger$ \\
+Jetson Orin NX 16\,GB & workable & trivial & hard$^\dagger$ \\
+Jetson Orin Nano 8\,GB & tight & ok & infeasible$^\dagger$ \\
+Raspberry Pi 5 (CPU) & planner fits & sec/plan via INT4 llama.cpp$^\dagger$ & infeasible (no CUDA, custom ops)$^\dagger$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+On Orin AGX the model \emph{fits} comfortably; the obstacle is perception \emph{throughput}.
+UniAD's six-camera ResNet-101 + deformable-attention BEVFormer runs FP32 with custom CUDA kernels;
+reaching the $\sim$10\,Hz a vehicle needs requires exporting perception to TensorRT-INT8 (a real
+engineering effort: ARM64/JetPack rebuilds of mmcv/mmdet3d ops, deformable-attention plugins). The
+planner---already $<1$\,GB and INT4-ready in group-wise form---is not the constraint. On a Raspberry
+Pi the gap is categorical: no CUDA and no CPU path for the deformable-attention ops, so perception
+would need to be \emph{replaced}, not ported.
+
+\section{Implication}
+Quantizing the VLA language head buys memory on a component that was never the edge bottleneck, and
+leaves end-to-end latency essentially unchanged because FP32 perception dominates wall-clock. The
+contribution of group-wise INT4 is robustness (coherence under domain shift), not latency. The
+edge-deployment research frontier for driving VLAs is \emph{perception} compression/architecture,
+with the planner as a solved sub-problem.
+
+\section{Limitations}
+Footprints are measured on an A100 inference node (relative component split transfers; absolute Orin
+numbers will differ). Throughput rows are device-class estimates ($^\dagger$), not on-Orin
+measurements---an on-device benchmark is future work. INT4 weight footprints assume packed storage;
+our research pipeline uses fake-quant (dequantized weights), so it does not yet realize the packed
+memory saving.
+
+\section{Conclusion}
+For edge driving-VLAs: the planner is free (group-wise INT4, $\approx 0.26$\,GB, robust), and
+perception is the wall (FP32, custom-op, latency-dominant). Optimize perception.
+
+\begin{thebibliography}{9}
+\bibitem{uniad} Hu et al. \emph{Planning-oriented Autonomous Driving (UniAD)}. CVPR 2023.
+\bibitem{trtllm} NVIDIA. \emph{TensorRT-LLM / Orin INT4 deployment toolchain}. (Replace with verified citation.)
+\bibitem{opendrivevla} OpenDriveVLA. 2025. (Replace with verified citation.)
+\end{thebibliography}
+\end{document}

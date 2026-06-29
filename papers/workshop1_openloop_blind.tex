@@ -1,0 +1,131 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{authblk}
+
+% ============================================================================
+% WORKSHOP PAPER 1 -- evaluation-methodology angle
+% All numerical results are real measurements from the OpenDriveVLA-0.5B study
+% (nuScenes-mini open-loop + NeuroNCAP closed-loop, scenes 0103+0796, real cameras). See companion
+% RESULTS.md / FINDINGS.md in the code release.
+% ============================================================================
+
+\title{\textbf{Open-Loop L2 Is Blind: Planning Metrics Hide Quantization\\
+Damage in Autonomous-Driving Vision--Language--Action Models}}
+\author[1]{Justin Williams}
+\author[1]{Kishor Datta Gupta}
+\author[1]{Roy George}
+\author[1]{Mrinmoy Sarkar}
+\affil[1]{Clark Atlanta University \quad \texttt{justinwilliamstech693@gmail.com}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Post-training quantization is routinely reported ``lossless'' for autonomous-driving
+vision--language--action (VLA) models using the standard open-loop nuScenes L2 metric. We
+show this conclusion is an \emph{artifact of the metric}. Using OpenDriveVLA-0.5B (a Qwen2.5
+planner on UniAD perception), we first reproduce the lossless result---FP16, INT8, and INT4
+weight quantization of the language backbone all yield $\approx 0.33$\,m L2. We then run a
+single controlled ablation: zeroing the ego-state and history text handed to the planner
+inflates L2 from $0.33$ to $6.38$\,m ($19\times$). Open-loop planning on nuScenes is therefore
+$\approx$ ego-motion extrapolation; the perception/planning pathway---and any quantization
+damage to it---contributes little to the reported number, which is why model size and bit-width
+barely move it. The practical implication is a warning: \emph{do not certify a quantized driving
+policy on open-loop L2}. We outline why closed-loop testing is necessary to expose
+quantization-induced failures that open-loop metrics structurally cannot see.
+\end{abstract}
+
+\section{Introduction}
+Compressing driving VLA policies for on-board inference is attractive, and the literature
+generally reports that 4-bit weight quantization is essentially free on open-loop nuScenes
+planning. We argue the standard metric cannot support that claim. We make three points, each
+backed by a measurement on OpenDriveVLA-0.5B: (i) weight quantization down to INT4 is indeed
+lossless \emph{on open-loop L2}; (ii) open-loop L2 is dominated by ego-motion extrapolation, so
+it is structurally insensitive to the perception/planning computation; (iii) therefore the
+``lossless'' conclusion says nothing about deployment behavior.
+
+\section{Setup}
+OpenDriveVLA-0.5B couples a Qwen2.5-0.5B language/action head (hidden size 896, 24 decoder
+layers) to UniAD stage-1 track+map perception used as a ``vision tower.'' We evaluate on the
+162 nuScenes-mini $\cap$ validation samples under the ST-P3 and UniAD L2 protocols. Weight-only
+post-training quantization (per-output-channel symmetric round-to-nearest, dequantized to the
+compute dtype) is applied \emph{only} to the 168 Linear layers of the Qwen backbone (357.8\,M
+parameters); perception, the scene/track/map projectors, embeddings and the output head remain
+in floating point, so the measured effect is purely the language head's W$b$ loss.
+
+\section{Results}
+\subsection{INT4 is ``lossless'' on open-loop L2}
+\begin{table}[h]\centering
+\caption{Open-loop L2 (m, ST-P3 cumulative protocol; lower is better), 162 mini$\cap$val samples.
+Weight-only quantization of the Qwen backbone.}
+\begin{tabular}{lccc}
+\toprule
+Precision & L2 @1/2/3s avg & well-formed output & note \\
+\midrule
+FP16 (baseline) & 0.33 & 100\% & matches reported 0.5B result \\
+INT8            & 0.33 & 100\% & lossless \\
+INT4            & 0.33 & 100\% & lossless \\
+INT3            & 1.91 & 92\%  & text generation begins to break \\
+INT2            & 6.45 & 0\%   & dead (all malformed) \\
+\bottomrule
+\end{tabular}
+\end{table}
+Down to INT4 the planner is indistinguishable from FP16. The degradation at INT3/INT2 is a
+\emph{generation-coherence} failure (malformed trajectory text), not graded planning loss.
+
+\subsection{Why the metric cannot see quantization: ego-ablation}
+\begin{table}[h]\centering
+\caption{Ego-ablation: zeroing the ego-state and 2\,s history text in the prompt. Same model,
+same perception.}
+\begin{tabular}{lcc}
+\toprule
+Condition & L2 (m) & relative \\
+\midrule
+Full input (FP16)          & 0.33 & $1\times$ \\
+Ego-state + history zeroed & 6.38 & $19\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+Removing the handed ego kinematics collapses the plan by $19\times$, while the outputs remain
+well-formed. The model is therefore extrapolating the ego trajectory it is given; perception and
+the language head contribute little to open-loop L2. This single number explains the otherwise
+puzzling observations that (a) 0.5B/3B/7B variants report the same L2 and (b) INT8/INT4 are free:
+there is little perception-grounded reasoning in this metric to lose.
+
+\section{Discussion}
+Open-loop L2 measures how well a model copies a velocity vector forward, not how well it perceives
+or plans. Quantization that subtly perturbs perception or planning---or that destabilizes
+generation under distribution shift---is invisible to it. Certifying a quantized driving policy on
+open-loop L2 thus provides false assurance. The necessary test is \emph{closed-loop}: only there
+is the logged ego trajectory unavailable to coast on, so perception/planning, and quantization
+damage to them, can manifest. A companion study shows exactly such a failure (per-channel INT4
+collapsing generation closed-loop where group-wise INT4 does not), invisible to the L2 metric here.
+
+\section{Limitations}
+The ego-ablation and quantization sweep are on a single model (OpenDriveVLA-0.5B) and the
+nuScenes-mini split. The claim is about the \emph{metric's} structural insensitivity, supported by
+the $19\times$ ablation; it does not assert a specific quantization technique is unsafe (that is the
+subject of the closed-loop companion work).
+
+\section{Conclusion}
+4-bit weight quantization of a driving-VLA language head is lossless on open-loop nuScenes L2---but
+the metric is $\approx$ ego-extrapolation ($19\times$ ego-ablation), so ``lossless'' is not evidence
+of safety. Quantized driving policies must be evaluated closed-loop.
+
+\begin{thebibliography}{9}
+\bibitem{opendrivevla} OpenDriveVLA: \emph{Towards End-to-end Autonomous Driving with Large
+Vision--Language--Action Models}. 2025. (Replace with verified citation.)
+\bibitem{uniad} Hu et al. \emph{Planning-oriented Autonomous Driving (UniAD)}. CVPR 2023.
+\bibitem{egostatus} Zhai et al. \emph{Rethinking the Open-Loop Evaluation of End-to-End Autonomous
+Driving (``Ego status is all you need'')}. 2023.
+\bibitem{neuroncap} NeuroNCAP: \emph{Photorealistic Closed-loop Safety Testing for Autonomous
+Driving}. ECCV 2024.
+\end{thebibliography}
+\end{document}
