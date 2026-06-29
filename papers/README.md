@@ -13,16 +13,17 @@ build notes.
 | `conference_closedloop_reveals.tex` | Main conference | Open-loop hides quantization damage; closed-loop reveals a granularity collapse with a near-free fix. |
 | `journal_comprehensive.tex` | Journal | The full study: blindness + collapse + granularity fix + edge memory, with threats-to-validity. |
 
-## Headline numbers (real-camera NeuroNCAP, 2 scenes, 10 seeds each)
+## Headline numbers (real-camera NeuroNCAP, 14 scenes / 16 scenario instances, 10 seeds each)
 
-Generation coherence (well-formed predicted-frame rate):
+Mean generation coherence (well-formed predicted-frame rate):
 
-| Config | 0103 frontal | 0796 stationary |
-|--------|--------------|-----------------|
-| FP16 | 74.3% | 72.4% |
-| INT4 per-channel | 0.0% | 8.6% |
-| INT4 group-128 | 72.9% | 57.9% |
+| Config | mean coherence | per-scenario behaviour |
+|--------|----------------|------------------------|
+| FP16 | 76.0% | — |
+| INT4 per-channel (naive) | **3.7%** | collapses (≤15%) on 15/16 |
+| INT4 group-128 | **73.5%** | recovers (≥85% of FP16) on 13/16 |
 
+Group-wise ties/beats FP16 on 13/16 scenarios; partial recovery on 3 (0099, 0101, 0796).
 Open-loop: INT4 L2 = 0.33 m (lossless); ego-state ablation → 6.38 m (**19×**).
 
 ## Building
@@ -33,6 +34,7 @@ self-contained `article` class (booktabs, authblk, hyperref). Bibliographies are
 before submission.
 
 ## Status / caveats
-Draft. Results are two-scene; group-wise recovery is partial on the harder scene; one scene (0796) is
-failed by every config including FP16 (collision metric is confounded — coherence is the lead metric).
+Draft. Results span 14 scenes (16 scenario instances) — the full released closed-loop benchmark;
+group-wise recovery is partial on 3 (0099, 0101, 0796); several scenes are failed by every config
+including FP16 (collision metric is confounded — coherence is the lead metric).
 See `../RESULTS.md` and `../FINDINGS.md`.

@@ -84,35 +84,54 @@ it — actually show up.
 
 Reproduce: `CUDA_VISIBLE_DEVICES=0 MASTER_PORT=29611 ODV_ABLATE_EGO=1 bash scripts/eval_drivevla_mini.sh checkpoints/OpenDriveVLA-0.5B 1 "" "miniNoEgo"`
 
-## ★★ REAL-CAMERA, TWO-SCENE RESULT (2026-06-28) — current numbers; read this first
+## ★★ REAL-CAMERA, 14-SCENE RESULT (2026-06-29) — current numbers; read this first
 
 > **The closed-loop tables further down this file were produced with a broken renderer.**
 > tiny-cuda-nn (tcnn) was not installed, so NeuRAD fell back to a torch hashgrid the checkpoint's
 > `tcnn_encoding.params` blobs could not load into (`strict_load=False`) → every camera frame was
 > flat grey (CAM_FRONT std ~3). The model was driving on blank perception. After installing tcnn the
-> cameras are photorealistic (std 25–49) and we re-ran on **two** scenes, 10 paired seeds each.
+> cameras are photorealistic (std 25–49) and we re-ran on **14 scenes (16 scenario instances)**,
+> 10 paired seeds each — the full released NeuroNCAP closed-loop benchmark.
 
-**Generation coherence (well-formed predicted-frame rate), real cameras, 10 seeds/scene:**
+**Mean generation coherence (well-formed predicted-frame rate), real cameras, 10 seeds each:**
 
-| Config            | 0103 frontal | 0796 stationary |
-|-------------------|--------------|-----------------|
-| FP16              | 74.3%        | 72.4%           |
-| W4 per-channel    | **0.0%**     | **8.6%**        |
-| W4 group-128      | **72.9%**    | **57.9%**       |
+| Config                  | mean coherence | per-scenario behaviour              |
+|-------------------------|----------------|-------------------------------------|
+| FP16                    | 76.0%          | —                                   |
+| W4 per-channel (naive)  | **3.7%**       | collapses (≤15%) on 15/16           |
+| W4 group-128            | **73.5%**      | recovers (≥85% of FP16) on 13/16    |
 
-**NCAP score / collisions (secondary, confounded):**
+**Full per-scene table (coherence %, then NCAP score, then collisions/10):**
 
-| Config         | 0103 (mean, coll) | 0796 (mean, coll) |
-|----------------|-------------------|-------------------|
-| FP16           | 5.0, 0/10         | 0.88, **10/10**   |
-| W4 per-channel | 4.08, 4/10        | 0.00, 10/10       |
-| W4 group-128   | 5.0, 0/10         | 1.58, 10/10       |
+| scene_scenario   | FP16 coh | naive coh | g128 coh | FP16 ncap | naive ncap | g128 ncap | FP16 coll | naive coll | g128 coll |
+|------------------|---------:|----------:|---------:|----------:|-----------:|----------:|----------:|-----------:|----------:|
+| 0099_stationary  | 60.6 | 0.0  | 30.0 | 5.0 | 1.4 | 0.0 | 0  | 10 | 10 |
+| 0101_stationary  | 75.0 | 14.3 | 46.7 | 5.0 | 0.3 | 0.0 | 0  | 10 | 10 |
+| 0103_frontal     | 74.3 | 0.0  | 72.9 | 5.0 | 4.1 | 5.0 | 0  | 4  | 0  |
+| 0106_frontal     | 66.9 | 0.0  | 78.7 | 4.5 | 3.7 | 4.7 | 1  | 4  | 1  |
+| 0108_side        | 85.7 | 0.0  | 91.6 | 4.0 | 5.0 | 4.6 | 2  | 0  | 1  |
+| 0108_stationary  | 72.4 | 0.0  | 74.7 | 5.0 | 5.0 | 5.0 | 0  | 0  | 0  |
+| 0110_frontal     | 70.7 | 0.0  | 74.3 | 5.0 | 5.0 | 5.0 | 0  | 0  | 0  |
+| 0278_side        | 75.3 | 0.0  | 67.9 | 5.0 | 2.4 | 1.6 | 0  | 10 | 9  |
+| 0278_stationary  | 79.7 | 0.0  | 83.5 | 0.0 | 0.1 | 0.9 | 10 | 10 | 9  |
+| 0331_stationary  | 83.2 | 5.0  | 97.5 | 5.0 | 1.5 | 1.4 | 0  | 10 | 10 |
+| 0346_frontal     | 83.1 | 15.6 | 86.9 | 4.5 | 4.2 | 5.0 | 1  | 3  | 0  |
+| 0783_stationary  | 72.4 | 0.0  | 73.1 | 5.0 | 0.0 | 0.0 | 0  | 10 | 10 |
+| 0796_stationary  | 72.4 | 8.6  | 57.9 | 0.9 | 0.0 | 1.6 | 10 | 10 | 10 |
+| 0921_side        | 90.0 | 14.2 | 90.4 | 5.0 | 5.0 | 4.5 | 0  | 0  | 1  |
+| 0923_frontal     | 74.6 | 0.8  | 72.1 | 4.0 | 3.0 | 3.7 | 3  | 7  | 4  |
+| 0966_stationary  | 79.4 | 0.0  | 78.3 | 5.0 | 0.1 | 0.4 | 0  | 10 | 10 |
 
-**Honest reading:** the coherence finding **replicates on both scenes** — per-channel W4 collapses
-generation (0.0%/8.6%), group-W4 recovers most of FP16 (matches on 0103, *partial* on 0796). Caveats
-the bigger eval exposed: (1) group-W4 ≠ exact FP16 (partial recovery on the harder scene); (2) 0796
-is failed by **every** config including FP16 (10/10 collisions), so collision/NCAP is scene-dependent
-and confounded — lead with coherence; (3) rendered inputs are still OOD to real nuScenes.
+(2 of 16 cells — 0106_stationary, 0110_side — collided 0/0 for all configs and have no coherence rate;
+excluded from coherence means.) Source: `benchmark14_coherence.tsv`.
+
+**Honest reading:** the coherence finding **replicates across all 16 scenario instances** —
+per-channel W4 collapses generation (mean 3.7%, ≤15% on 15/16), group-W4 recovers most of FP16
+(mean 73.5% vs 76.0%, ≥85% of FP16 on 13/16). Caveats: (1) group-W4 ≠ exact FP16 — partial recovery
+on 3 scenes (0099, 0101, 0796); (2) several scenes are failed by **every** config including FP16
+(10/10 collisions: 0278_stationary, 0783_stationary, 0796_stationary, 0966_stationary, …), so
+collision/NCAP is scene-dependent and confounded — lead with coherence; (3) rendered inputs are
+still OOD to real nuScenes.
 
 ---
 

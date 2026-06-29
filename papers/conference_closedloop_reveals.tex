@@ -11,7 +11,7 @@
 % ============================================================================
 % MAIN CONFERENCE PAPER (full combined study)
 % Real measurements: OpenDriveVLA-0.5B; nuScenes-mini open-loop; NeuroNCAP
-% closed-loop scene-0103 frontal (10 paired seeds). Honest limitations included.
+% closed-loop 14 scenes / 16 scenario instances (10 paired seeds each). Honest limitations included.
 % ============================================================================
 
 \title{\textbf{Closed-Loop Reveals What Open-Loop Hides: Generation-Coherence\\
@@ -34,10 +34,11 @@ establish three results. (1) \textbf{Open-loop is blind}: INT8/INT4 weight quant
 ($0.33$\,m), but zeroing the ego-state input inflates L2 to $6.38$\,m ($19\times$)---open-loop L2 is
 $\approx$ ego extrapolation and cannot see perception/planning or quantization damage. (2)
 \textbf{Closed-loop reveals a failure}: in a real-camera neural-rendering simulator (NeuroNCAP,
-two scenes), \emph{naive per-channel} INT4 collapses generation---degenerate trajectory text on
-nearly every frame, planner frozen ($0.0\%$ and $8.6\%$ well-formed)---while FP16 stays coherent
-($74.3\%$/$72.4\%$). (3) \textbf{Granularity is the fix}: \emph{group-wise} INT4 (group 128,
-$\approx 0.1$ extra bits/weight) recovers most of FP16's coherence ($72.9\%$/$57.9\%$). The
+\textbf{14 scenes / 16 scenario instances}), \emph{naive per-channel} INT4 collapses generation---
+degenerate trajectory text on nearly every frame, planner frozen ($\le 15\%$ well-formed on 15/16,
+mean $3.7\%$)---while FP16 stays coherent (mean $76.0\%$). (3) \textbf{Granularity is the fix}:
+\emph{group-wise} INT4 (group 128, $\approx 0.1$ extra bits/weight) recovers most of FP16's coherence
+(mean $73.5\%$, $\ge 85\%$ of FP16 on 13/16). The
 collapse is a quantization\,$\times$\,deployment-domain-shift interaction (per-channel INT4 is
 lossless in-distribution), governed by scale granularity, not bit-width. We argue
 generation-coherence rate is the correct metric (collision counts are a confounded proxy) and that
@@ -103,29 +104,27 @@ planning pathway or its quantization.
 
 \subsection{Closed-loop generation coherence}
 \begin{table}[h]\centering
-\caption{NeuroNCAP closed-loop, \emph{real-camera} NeuRAD rendering (tcnn), 10 paired seeds per
-scene. Generation coherence = well-formed predicted-frame rate. NCAP score / collisions are
-secondary (confounded) proxies.}
-\begin{tabular}{lcccccc}
+\caption{NeuroNCAP closed-loop generation coherence (well-formed predicted-frame rate),
+\emph{real-camera} NeuRAD rendering, 14 scenes / 16 scenario instances, 10 paired seeds each.
+Per-scenario behaviour summarized; full per-scene table in the appendix/release.}
+\begin{tabular}{lcc}
 \toprule
- & \multicolumn{3}{c}{0103 (frontal)} & \multicolumn{3}{c}{0796 (stationary)} \\
-\cmidrule(lr){2-4}\cmidrule(lr){5-7}
-Config & coher. & NCAP & coll. & coher. & NCAP & coll. \\
+Config & mean coherence & per-scenario behaviour \\
 \midrule
-FP16              & 74.3\%          & 5.0  & 0/10  & 72.4\%          & 0.88 & 10/10 \\
-INT4 per-channel  & \textbf{0.0\%}  & 4.08 & 4/10  & \textbf{8.6\%}  & 0.00 & 10/10 \\
-INT4 group-128    & \textbf{72.9\%} & 5.0  & 0/10  & \textbf{57.9\%} & 1.58 & 10/10 \\
+FP16              & 76.0\%          & --- \\
+INT4 per-channel  & \textbf{3.7\%}  & collapses ($\le 15\%$) on 15/16 \\
+INT4 group-128    & \textbf{73.5\%} & $\ge 85\%$ of FP16 on 13/16 \\
 \bottomrule
 \end{tabular}
 \end{table}
-On both scenes per-channel INT4 collapses generation ($0.0\%$/$8.6\%$ well-formed) while group-wise
-INT4 recovers most of FP16's coherence ($72.9\%$/$57.9\%$ vs $74.3\%$/$72.4\%$). The \emph{same}
-per-channel INT4 is lossless in-distribution (open-loop, Table 1), so the failure is a
-quantization\,$\times$\,domain-shift interaction. Collision/NCAP is confounded and scene-dependent:
-on 0796 \emph{every} config including FP16 collides $10/10$ (the base policy fails that scenario),
-so only coherence cleanly separates the configs there; on 0103 collisions do track collapse
-($4/10$ vs $0/10$). We therefore lead with coherence, and we do not claim group-wise exactly equals
-FP16 (it matches on 0103, partially recovers on 0796).
+Across all 16 scenario instances per-channel INT4 collapses generation (mean $3.7\%$ well-formed,
+$\le 15\%$ on 15/16) while group-wise INT4 recovers most of FP16's coherence (mean $73.5\%$ vs
+$76.0\%$, $\ge 85\%$ of FP16 on 13/16). The \emph{same} per-channel INT4 is lossless in-distribution
+(open-loop, Table 1), so the failure is a quantization\,$\times$\,domain-shift interaction.
+Collision/NCAP is confounded and scene-dependent: on several scenarios \emph{every} config including
+FP16 collides $10/10$ (the base policy fails them), so only coherence cleanly separates the configs.
+We lead with coherence and do not claim group-wise exactly equals FP16 (it ties/beats on 13/16,
+partially recovers on 3: 0099, 0101, 0796).
 
 \subsection{Why granularity}
 A shared INT4 scale $s=\max|w|/7$ is set by the group's largest weight; one outlier coarsens the
@@ -162,13 +161,13 @@ should (i) never certify a quantized driving policy on open-loop L2, and (ii) de
 INT4 for the planner.
 
 \section{Limitations and threats to validity}
-(1) \textbf{Two scenes} (NeuroNCAP 0103 frontal, 0796 stationary); the mechanism is established and
-replicated once, not fleet-wide. The remaining NeuRAD-reconstructed scenes need gated nuScenes
-trainval metadata. (2) \textbf{Out-of-distribution renderer}: rendered inputs are OOD to real
-nuScenes---even FP16 fails 0796's collision test ($10/10$)---so absolute NCAP/collision numbers are
-not comparable to in-distribution operation and our claims are \emph{relative} (group $\approx$ FP16
-$\gg$ per-channel on coherence). (1b) \textbf{Partial recovery}: group-wise matches FP16 coherence
-on 0103 but only partially on 0796 ($57.9\%$ vs $72.4\%$). (3) The collision
+(1) \textbf{Scene coverage} (all 14 NeuRAD-reconstructed NeuroNCAP scenes, 16 scenario instances);
+this is the full released closed-loop benchmark, not all of nuScenes. (2) \textbf{Out-of-distribution
+renderer}: rendered inputs are OOD to real nuScenes---on several scenarios even FP16 fails the
+collision test ($10/10$)---so absolute NCAP/collision numbers are not comparable to in-distribution
+operation and our claims are \emph{relative} (group $\approx$ FP16 $\gg$ per-channel on coherence).
+(2b) \textbf{Partial recovery}: group-wise ties/beats FP16 on 13/16 scenarios but only partially
+recovers on 3 (0099, 0101, 0796). (3) The collision
 metric is a confounded downstream proxy (collapse$\to$frozen$\to$geometry-dependent crash, mediated
 by the degenerate fallback); we therefore lead with coherence. (4) An activation-aware (AWQ) low-bit
 variant is excluded pending a fix. (5) Fake-quant (dequantized) weights are used, so packed memory/

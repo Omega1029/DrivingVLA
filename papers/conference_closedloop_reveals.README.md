@@ -15,13 +15,15 @@ recovers FP16-level coherence at ~0.1 extra bits/wt.
 3. Generation-coherence as the un-confounded metric + a near-free recipe (group-wise INT4) + edge
    memory benchmarks.
 
-## Key results (real-camera NeuroNCAP, 2 scenes, 10 seeds)
-Coherence — 0103: FP16 74.3 / per-ch 0.0 / g128 72.9 %; 0796: 72.4 / 8.6 / 57.9 %.
+## Key results (real-camera NeuroNCAP, 14 scenes / 16 scenario instances, 10 seeds)
+Mean coherence — FP16 76.0 / per-ch (naive) 3.7 / g128 73.5 %. Naive collapses (≤15%) on 15/16;
+group-wise recovers (≥85% of FP16) on 13/16, partial on 3 (0099, 0101, 0796).
 Open-loop INT4 L2 0.33 m; ego-ablation 6.38 m (19×).
 
 ## Scope / caveats (in the paper's Limitations)
-Two scenes; OOD renderer (even FP16 fails 0796 collisions 10/10); group-wise recovery partial on 0796;
-collision/NCAP confounded → lead with coherence; AWQ low-bit path buggy/excluded; fake-quant.
+14 scenes / 16 scenario instances (full released benchmark); OOD renderer (several scenes failed even
+by FP16, collisions 10/10); group-wise recovery partial on 0099/0101/0796; collision/NCAP confounded →
+lead with coherence; AWQ low-bit path buggy/excluded; fake-quant.
 
 ## Path to camera-ready (gating items)
 More scenes (12 more staged), fix/justify FP16-fails-0796 perception validity, report standard NCAP

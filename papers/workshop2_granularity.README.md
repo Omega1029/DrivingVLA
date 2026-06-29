@@ -8,23 +8,24 @@ Under deployment-domain shift (photorealistic neural rendering), **naive per-out
 collapses trajectory-text generation, while **group-wise** INT4 (g128, ~0.1 extra bits/wt) recovers
 most of FP16. The deciding factor is **scale granularity**, not 4-bit precision.
 
-## Key results (real-camera NeuroNCAP, 2 scenes, 10 paired seeds)
-Generation coherence (well-formed predicted-frame rate):
+## Key results (real-camera NeuroNCAP, 14 scenes / 16 scenario instances, 10 paired seeds)
+Mean generation coherence (well-formed predicted-frame rate):
 
-| Config | 0103 frontal | 0796 stationary |
-|--------|--------------|-----------------|
-| FP16 | 74.3% | 72.4% |
-| INT4 per-channel | 0.0% | 8.6% |
-| INT4 group-128 | 72.9% | 57.9% |
+| Config | mean coherence | per-scenario behaviour |
+|--------|----------------|------------------------|
+| FP16 | 76.0% | — |
+| INT4 per-channel (naive) | **3.7%** | collapses (≤15%) on 15/16 |
+| INT4 group-128 | **73.5%** | recovers (≥85% of FP16) on 13/16 |
 
 Same per-channel INT4 is lossless in-distribution (open-loop) → it's a quantization × domain-shift
 interaction. Mechanism: one weight outlier inflates the shared per-channel scale; group-wise confines
 it to a 128-weight block.
 
 ## Scope / caveats
-Two scenes. Group-wise recovery is **partial** on the harder scene (0796) — not exact FP16 equivalence.
-Collision/NCAP is a confounded, scene-dependent proxy (on 0796 every config including FP16 collides),
-so coherence is the lead metric. INT3/INT2/AWQ were only measured on the earlier (blank-camera)
+14 scenes / 16 scenario instances (full released benchmark). Group-wise recovery is **partial** on 3
+(0099, 0101, 0796) — not exact FP16 equivalence. Collision/NCAP is a confounded, scene-dependent proxy
+(several scenes have every config including FP16 colliding 10/10), so coherence is the lead metric.
+INT3/INT2/AWQ were only measured on the earlier (blank-camera)
 renderer and are not re-reported.
 
 ## Build
