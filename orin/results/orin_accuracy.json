@@ -1,0 +1,60 @@
+{
+  "subset_n": 40,
+  "note": "nuScenes-mini val subset, fp16 replay of cached perception embeds, planner-only",
+  "l2_stp3": {
+    "a100_fp16": {
+      "1s": 0.196,
+      "2s": 0.454,
+      "3s": 0.871
+    },
+    "a100_w4_g128": {
+      "1s": 0.206,
+      "2s": 0.47,
+      "3s": 0.885
+    },
+    "a100_w4_perch": {
+      "1s": 0.204,
+      "2s": 0.484,
+      "3s": 0.908
+    },
+    "orin_fp16": {
+      "1s": 0.196,
+      "2s": 0.453,
+      "3s": 0.87
+    },
+    "orin_w4_g128": {
+      "1s": 0.206,
+      "2s": 0.475,
+      "3s": 0.897
+    },
+    "orin_w4_perch": {
+      "1s": 0.204,
+      "2s": 0.467,
+      "3s": 0.882
+    }
+  },
+  "cross_device_cm": {
+    "fp16": {
+      "mean": 1.1,
+      "max": 13.83
+    },
+    "w4_g128": {
+      "mean": 1.5,
+      "max": 53.33
+    },
+    "w4_perch": {
+      "mean": 3.74,
+      "max": 146.15
+    }
+  },
+  "on_orin_quant_vs_fp16_cm": {
+    "w4_g128": {
+      "mean": 13.63,
+      "max": 56.18
+    },
+    "w4_perch": {
+      "mean": 24.19,
+      "max": 91.54
+    }
+  }
+}

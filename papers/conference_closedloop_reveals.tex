@@ -102,6 +102,14 @@ FP16, ego-state+history zeroed & \textbf{6.38} ($19\times$) & 100\% \\
 INT4 is lossless; the $19\times$ ego-ablation shows why the metric cannot reflect the perception/
 planning pathway or its quantization.
 
+\paragraph{On-device validation (Jetson AGX Orin 64\,GB).} We replayed the captured planner inputs
+on a real AGX Orin (JetPack~6, torch~2.8) and re-scored open-loop L2 (40-sample mini subset, ST-P3).
+The Orin reproduces the A100 to $\approx 1$\,cm mean trajectory difference at FP16, and open-loop L2
+is unchanged by quantization on-device: FP16 $0.87$\,m vs group-INT4 $0.90$\,m vs per-channel-INT4
+$0.88$\,m at 3\,s. Yet the \emph{per-sample} W4 trajectories already differ from FP16 by $14$--$24$\,cm
+(mean) on the Orin---a perturbation open-loop L2 averages away but closed-loop coherence exposes. The
+blindness is thus a property of the metric, not the hardware: it persists on the deployment target.
+
 \subsection{Closed-loop generation coherence}
 \begin{table}[h]\centering
 \caption{NeuroNCAP closed-loop generation coherence (well-formed predicted-frame rate),

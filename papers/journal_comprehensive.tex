@@ -135,6 +135,16 @@ text), not graded planning. The ego-ablation shows the metric is $\approx$ ego-e
 ego state removed the plan collapses $19\times$ while outputs stay well-formed. Open-loop L2 thus
 cannot reflect perception/planning, nor quantization damage to them.
 
+\paragraph{The blindness persists on the deployment target (Jetson AGX Orin).} We replayed the
+captured planner inputs on a real AGX Orin 64\,GB (JetPack~6, torch~2.8) and re-scored open-loop L2
+(40-sample mini subset, ST-P3). The Orin reproduces the A100 to $\approx 1$\,cm mean trajectory
+difference (FP16), and open-loop L2 is essentially unchanged by quantization on-device: FP16
+$0.196/0.453/0.870$\,m vs group-INT4 $0.206/0.475/0.897$\,m vs per-channel-INT4 $0.204/0.467/0.882$\,m
+at $1/2/3$\,s. Crucially, the \emph{per-sample} W4 trajectories already diverge from FP16 by
+$14$--$24$\,cm (mean) on the Orin while the aggregate L2 moves $<3$\,cm---the metric averages away a
+real quantization perturbation. Open-loop blindness is therefore a property of the metric, reproduced
+on the actual edge hardware, not an artifact of the evaluation server.
+
 \subsection{Q2--Q3: Closed-loop reveals collapse; granularity is the fix}
 \begin{table}[h]\centering
 \caption{NeuroNCAP closed-loop generation coherence (well-formed predicted-frame rate, \%),

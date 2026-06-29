@@ -99,6 +99,13 @@ the language head contribute little to open-loop L2. This single number explains
 puzzling observations that (a) 0.5B/3B/7B variants report the same L2 and (b) INT8/INT4 are free:
 there is little perception-grounded reasoning in this metric to lose.
 
+\paragraph{On the deployment target.} We replayed the captured planner inputs on a real Jetson AGX
+Orin 64\,GB (JetPack~6, torch~2.8) and re-scored open-loop L2 (40-sample mini subset, ST-P3). The
+Orin reproduces the A100 to $\approx 1$\,cm mean (FP16), and INT4 remains ``lossless'' on-device
+(FP16 $0.87$\,m vs group-INT4 $0.90$\,m at 3\,s)---even though the per-sample W4 plans already differ
+from FP16 by $14$--$24$\,cm. The blindness travels to the edge hardware: it is the metric, not the
+machine.
+
 \section{Discussion}
 Open-loop L2 measures how well a model copies a velocity vector forward, not how well it perceives
 or plans. Quantization that subtly perturbs perception or planning---or that destabilizes
