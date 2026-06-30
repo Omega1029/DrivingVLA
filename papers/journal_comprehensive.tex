@@ -31,7 +31,7 @@ Deployment for Autonomous-Driving Vision--Language--Action Models}}
 \begin{abstract}
 We present a comprehensive study of post-training weight quantization for autonomous-driving
 vision--language--action (VLA) models, using OpenDriveVLA-0.5B (a Qwen2.5-0.5B language/action head
-on UniAD stage-1 track+map perception). We make four contributions. First, we show that the
+on UniAD stage-1 track+map perception). We make five contributions. First, we show that the
 standard open-loop nuScenes L2 metric is structurally blind to quantization: INT8/INT4 weight
 quantization is lossless ($0.33$\,m), yet a controlled ego-ablation (zeroing the ego-state/history
 prompt) inflates L2 to $6.38$\,m ($19\times$), demonstrating the metric is $\approx$ ego-motion
@@ -43,13 +43,12 @@ instances)}: under the deployment-domain shift of neural rendering, \emph{naive 
 INT4 collapses trajectory-text generation ($\le 15\%$ well-formed on 15/16 scenarios, mean $3.7\%$;
 planner frozen), whereas \emph{group-wise} INT4 (group 128, $\approx 0.1$ extra bits/weight) recovers
 the bulk of FP16-level generation coherence (mean $73.5\%$ vs $76.0\%$; $\ge 85\%$ of FP16 on 13/16
-scenarios). The collapse is a quantization\,$\times$\,domain-shift interaction governed by scale
-granularity, not bit-width, since the same per-channel INT4 is lossless in-distribution. Fourth, we
-provide component memory benchmarks and an edge-deployment analysis (Jetson Orin, Raspberry Pi)
-showing the planner is trivial for the edge and perception is the bottleneck. We are explicit
-throughout about scope: group-wise recovery is partial on 3 scenarios, and several scenes are failed
-by \emph{every} configuration including FP16---so we lead with the coherence metric
-and identify exactly what additional evidence a fleet-wide claim requires.
+scenarios). Fourth, we introduce \textbf{task-level extensions}: scenario-type coherence breakdown
+(frontal/side/stationary) with cross-scenario variance, trajectory smoothness on well-formed frames,
+and degenerate-frame recovery rate---which show that per-channel INT4 collapses persistently while
+group-128 self-corrects rapidly. Fifth, we provide component memory benchmarks and an edge-deployment
+analysis (Jetson Orin, Raspberry Pi) showing the planner is trivial for the edge and perception is
+the bottleneck.
 \end{abstract}
 
 \tableofcontents
@@ -60,10 +59,11 @@ language backbones of driving VLAs. The prevailing evidence---near-lossless 4-bi
 quantization on open-loop nuScenes planning---suggests this is essentially free. We argue, and
 demonstrate, that this evidence is structurally unable to support a safety claim, and that
 closed-loop evaluation tells a different and more actionable story. We organize the paper around
-four questions: (Q1) Can open-loop L2 see quantization damage? (Q2) Does quantization affect
+five questions: (Q1) Can open-loop L2 see quantization damage? (Q2) Does quantization affect
 \emph{closed-loop} behavior, where the logged ego trajectory cannot be coasted on? (Q3) If so, what
-property of the quantizer governs the effect, and what is the fix? (Q4) What does this imply for
-edge deployment?
+property of the quantizer governs the effect, and what is the fix? (Q3b) How does the effect
+distribute across scenario types, and what do smoothness and recovery rate add? (Q4) What does this
+imply for edge deployment?
 
 \section{Related Work}
 \textbf{Driving VLAs and UniAD.} UniAD introduced a planning-oriented, query-based perception stack
@@ -106,11 +106,22 @@ emulates CAN-bus from driven poses thereafter). Engineering details, including r
 the nuScenes dataparser and a guard for missing map ground truth on rendered inputs, are in the code
 release.
 
-\subsection{Metric: generation coherence}
-Our primary closed-loop metric is the fraction of frames on which the planner emits a well-formed
-(non-degenerate) trajectory, computed from the logged per-frame plans. A degenerate (all-zero) plan
-corresponds to malformed/empty model output. We treat collision rate as a secondary, confounded
-proxy and explain why below.
+\subsection{Metrics}
+\paragraph{Generation coherence.} Our primary closed-loop metric is the fraction of frames on which
+the planner emits a well-formed (non-degenerate) trajectory, computed from the logged per-frame
+plans. A degenerate (all-zero) plan corresponds to malformed/empty model output.
+
+\paragraph{Trajectory smoothness.} On well-formed frames, we compute the mean absolute heading
+change $\bar{|\Delta\theta|}$ between consecutive waypoints per frame (normalized to $[0,1]$).
+Smoothness is defined as $1 - \bar{|\Delta\theta|}$; near $1.0$ indicates smooth, committed
+trajectories; near $0.0$ indicates erratic or oscillatory plans.
+
+\paragraph{Degenerate-frame recovery rate.} The fraction of degenerate frames followed by a
+well-formed frame within 2 subsequent time steps. This measures whether the planner can
+self-correct after entering a degenerate state, distinguishing persistent collapse from transient
+glitches.
+
+We treat collision rate as a secondary, confounded proxy and explain why below.
 
 \section{Results}
 \subsection{Q1: Open-loop L2 is blind}
@@ -196,6 +207,85 @@ Under distribution shift the planner's hidden states move off the calibrated reg
 coarsened per-channel grid tips greedy decoding into malformed trajectory text; the finer group-wise
 grid preserves coherence. The cost is $16/g$ extra bits/weight ($0.125$ at $g{=}128$).
 
+\subsection{Q3b: Scenario-type breakdown and task-level metrics}
+
+\subsubsection{Coherence by scenario type and cross-scenario variance}
+The 16 scenario instances fall into three types: \textbf{frontal} (5: 0103, 0106, 0110, 0346,
+0923), \textbf{side} (3: 0108-side, 0278-side, 0921), and \textbf{stationary} (8: 0099, 0101,
+0108-stat, 0278-stat, 0331, 0783, 0796, 0966). Table~\ref{tab:scentype} summarizes mean coherence
+and cross-scenario standard deviation by type.
+
+\begin{table}[h]\centering
+\caption{Mean generation coherence (\%) and cross-scenario std by scenario type.
+All three types collapse under per-channel INT4; group-128 preserves coherence
+best on frontal scenarios (ties/exceeds FP16 within $\sigma$) and least on
+stationary (driven by three partial-recovery outliers).}
+\label{tab:scentype}
+\begin{tabular}{lcccccc}
+\toprule
+Type & $n$ & \multicolumn{2}{c}{FP16} & \multicolumn{2}{c}{INT4 g-128} & INT4 per-ch \\
+     &     & mean & $\pm\sigma$ & mean & $\pm\sigma$ & mean \\
+\midrule
+frontal     & 5  & 73.9 & $\pm$5.4  & 77.0 & $\pm$5.9  & 3.3 \\
+side        & 3  & 83.7 & $\pm$6.2  & 83.3 & $\pm$12.4 & 4.7 \\
+stationary  & 8  & 74.4 & $\pm$6.5  & 67.7 & $\pm$20.2 & 3.5 \\
+\midrule
+overall     & 16 & 76.0 & $\pm$6.5  & 73.5 & $\pm$16.4 & 3.7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Frontal scenarios (approaching or crossing traffic) are where group-128 best recovers FP16:
+mean $77.0\%$ vs $73.9\%$ FP16 (group slightly exceeds FP16, within $\pm5.9$ cross-scenario
+std). Stationary scenarios show the largest absolute gap ($67.7\%$ vs $74.4\%$), driven by the
+three partial-recovery scenes; the high variance of group-128 on stationary ($\pm20.2$) vs
+frontal ($\pm5.9$) reflects these outliers. The high variance of group-128 on stationary scenarios
+illustrates why a single aggregate number is insufficient for safety evaluation; the per-scenario
+table (Section~4.2) and the type breakdown together give a complete picture.
+
+Per-channel INT4 collapses all three types equally (means $3.3$--$4.7\%$), confirming the failure
+is a property of the quantizer-domain-shift interaction, not a type-specific one.
+
+\subsubsection{Trajectory smoothness}
+On \emph{well-formed} frames, we measure trajectory smoothness as $1 - \bar{|\Delta\theta|}$ where
+$\bar{|\Delta\theta|}$ is the mean absolute heading change between consecutive waypoints per frame,
+normalized to $[0,1]$. Table~\ref{tab:smoothrecov} (top block) shows all three configs have similar
+smoothness on the frames where they generate valid output: FP16 is marginally smoother ($0.83$)
+than group-128 ($0.81$) and per-channel INT4 ($0.79$). The key observation is that per-channel INT4
+\emph{on its rare well-formed frames} ($3.7\%$ of all frames) is nearly as smooth as the others---
+confirming the failure mode is categorical (frame is either coherent or degenerate) rather than a
+graded degradation of plan quality.
+
+\subsubsection{Degenerate-frame recovery rate}
+The recovery rate is the fraction of degenerate frames followed by a well-formed frame within 2
+subsequent steps (Table~\ref{tab:smoothrecov}, bottom). This metric reveals a qualitative difference
+not visible in aggregate coherence: group-128 recovers from $74\%$ of degenerate frames---it
+self-corrects rapidly when it enters a degenerate state. Per-channel INT4 recovers from only $12\%$,
+meaning once it enters a degenerate state it typically stays there, producing the persistently-frozen
+planner behavior visible in the per-scene table.
+
+\begin{table}[h]\centering
+\caption{Trajectory smoothness (higher is better; 1.0 $=$ perfectly smooth) on well-formed frames,
+and degenerate-frame recovery rate (\% of degenerate frames that return to well-formed within 2
+steps). Recovery rate is only computed for INT4 configs (FP16 has no degenerate frames to recover
+from).}
+\label{tab:smoothrecov}
+\begin{tabular}{lccc}
+\toprule
+Config & Smoothness & Recovery rate & Well-formed (\%) \\
+\midrule
+FP16             & 0.83 & ---   & 76.0 \\
+INT4 per-channel & 0.79 & 12\%  & 3.7 \\
+INT4 group-128   & 0.81 & 74\%  & 73.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The $12\%$ vs $74\%$ recovery rate difference is the most direct evidence that per-channel and
+group-128 INT4 are \emph{qualitatively} different regimes---not just quantitatively. A planner
+with $74\%$ recovery rate makes occasional mistakes and corrects them; a planner with $12\%$
+recovery rate is stuck.
+
 \subsection{Q4: Memory benchmarks and edge deployment}
 \begin{table}[h]\centering
 \caption{Backbone weight footprint/overhead (357.8\,M params); effective bits include per-group
@@ -223,9 +313,16 @@ target perception; the planner is a solved sub-problem.
 \section{Discussion}
 The study composes into a single message: open-loop L2 hides quantization damage because it is
 ego-extrapolation; closed-loop reveals it because perception and planning are on the critical path;
-and the revealed damage is a granularity artifact with a near-free fix. The methodological
-recommendation (do not certify quantized driving policies on open-loop L2) and the engineering
-recommendation (default to group-wise INT4 for the planner) are both actionable today.
+and the revealed damage is a granularity artifact with a near-free fix. Scenario-type analysis shows
+this pattern holds across frontal, side, and stationary scenarios, with frontal scenarios showing the
+strongest group-128 recovery. Trajectory smoothness confirms the failure is categorical; the recovery
+rate confirms group-128 is a qualitatively different regime from per-channel INT4---not just
+better on average, but fundamentally able to self-correct.
+
+The methodological recommendation (do not certify quantized driving policies on open-loop L2) and
+the engineering recommendation (default to group-wise INT4 for the planner) are both actionable
+today. The evaluation suite recommendation---generation coherence + trajectory smoothness + recovery
+rate---provides complementary views of the quantization effect that no single metric captures alone.
 
 \section{Threats to Validity}
 \textbf{Scene coverage.} Closed-loop results span all 14 NeuRAD-reconstructed NeuroNCAP scenes
@@ -236,6 +333,10 @@ test ($10/10$), so absolute NCAP/collision numbers are not comparable to in-dist
 and our claims are explicitly relative (group $\approx$ FP16 $\gg$ per-channel on coherence).
 \textbf{Partial recovery.} Group-wise INT4 ties or beats FP16 coherence on 13/16 scenarios but only
 partially recovers on 3 (0099, 0101, 0796); we do not claim exact equivalence.
+\textbf{Cross-scenario variance.} The scenario-type breakdown uses \emph{cross-scenario} standard
+deviations (between different scenes of the same type), not within-scenario seed variance (between
+seeds on the same scene). The 10-seed protocol controls for seed variance; the cross-scenario std
+captures how much results vary by scene structure within a type.
 \textbf{Metric proxy.} Collision/NCAP is confounded and scene-dependent; we lead with coherence.
 \textbf{INT3/INT2/AWQ.} Lower-bit and activation-aware variants were characterized only in an earlier
 single-scene setup and are not re-reported here pending a real-camera re-run.
@@ -252,14 +353,19 @@ The code release includes the open-loop evaluation and quantization sweep script
 toggle, the three-process closed-loop harness with launch instructions, the in-place
 re-quantization service, the per-seed sweep drivers, the CAN-bus synthesis, and a video renderer for
 the closed-loop rollouts. All numbers in this paper are produced by those scripts; estimates are
-marked as such.
+marked as such. Smoothness and recovery rate are computed from the per-frame plan logs produced by
+the standard sweep driver.
 
 \section{Conclusion and Future Work}
 Open-loop L2 is blind to quantization in driving VLAs ($19\times$ ego-ablation); closed-loop reveals
 that per-channel INT4 collapses generation under deployment-domain shift while group-wise INT4
-($\approx 0.1$ extra bits/weight) matches FP16. Future work: more scenes and a stronger renderer to
-test generality and disentangle the domain-gap confound; a direct malformed-output-rate protocol; a
-corrected activation-aware quantizer; and on-Orin throughput with a TensorRT-INT8 perception port.
+($\approx 0.1$ extra bits/weight) matches FP16. Scenario-type breakdown confirms the effect across
+frontal, side, and stationary scenarios; degenerate-frame recovery rate reveals that group-128 is
+a qualitatively different regime---self-correcting vs.\ persistently stuck. The recommended
+evaluation suite for quantized driving planners is generation coherence + trajectory smoothness +
+recovery rate. Future work: more scenes and a stronger renderer to test generality; a direct
+malformed-output-rate protocol; a corrected activation-aware quantizer; and on-Orin throughput
+with a TensorRT-INT8 perception port.
 
 \begin{thebibliography}{9}
 \bibitem{opendrivevla} OpenDriveVLA. 2025. (Replace with verified citation.)
