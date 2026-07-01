@@ -1,0 +1,406 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{authblk}
+
+% ============================================================================
+% COMBINED / COMPREHENSIVE PAPER
+% Merges: workshop1 (open-loop blind), workshop2 (granularity), workshop3
+% (edge memory), the conference paper, and the journal draft, plus the
+% on-device (Jetson AGX Orin) systems + accuracy + per-scene results and the
+% per-paper README content. All numbers are real measurements from the
+% OpenDriveVLA-0.5B study unless explicitly marked as estimates.
+% ============================================================================
+
+\title{\textbf{What Open-Loop Hides and Closed-Loop Reveals:\\
+Weight Quantization, Generation Coherence, and On-Device Deployment\\
+of Autonomous-Driving Vision--Language--Action Models}}
+\author[1]{Justin Williams}
+\author[1]{Kishor Datta Gupta}
+\author[1]{Roy George}
+\author[1]{Mrinmoy Sarkar}
+\affil[1]{Clark Atlanta University \quad \texttt{justinwilliamstech693@gmail.com}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present a comprehensive study of post-training weight quantization for autonomous-driving
+vision--language--action (VLA) models, using \textbf{OpenDriveVLA-0.5B}~\cite{opendrivevla}---a
+Qwen2.5-0.5B language/action head on UniAD~\cite{uniad} track+map perception---evaluated open-loop
+on nuScenes, closed-loop in the NeuroNCAP~\cite{neuroncap} neural-rendering simulator, and
+\emph{on a real NVIDIA Jetson AGX Orin}. We make five contributions. (1) \textbf{Open-loop is blind:}
+INT8/INT4 weight quantization is lossless on nuScenes L2 ($0.33$--$0.35$\,m), yet a controlled
+ego-ablation inflates L2 to $6.38$\,m ($19\times$), showing the metric is $\approx$ ego-motion
+extrapolation and cannot see quantization damage---consistent with, and quantifying for a
+quantization context, the ego-status critique of open-loop planning~\cite{egostatus}. (2)
+\textbf{Closed-loop reveals a failure:} across all 14 released NeuroNCAP scenes (16 scenario
+instances, 10 paired seeds), \emph{naive per-output-channel} INT4 collapses trajectory-text
+generation ($\le 15\%$ well-formed on 15/16, mean $3.7\%$) while FP16 stays coherent (mean $76.0\%$).
+(3) \textbf{Granularity, not bit-width, is the fix:} \emph{group-wise} INT4 (group 128,
+$\approx 0.1$ extra bits/weight) recovers most of FP16's coherence (mean $73.5\%$, $\ge 85\%$ of FP16
+on 13/16). We give the scale-outlier mechanism and relate it to GPTQ~\cite{gptq} and
+AWQ~\cite{awq}. (4) \textbf{On-device systems:} on an AGX Orin 64\,GB the planner runs in
+$2.88$\,GB at $14.9$ tok/s, and group-wise INT4 packs its weights $3.9\times$ ($0.72\to0.19$\,GB).
+(5) \textbf{On-device accuracy:} replaying real inputs on the Orin reproduces the A100 to $\approx
+1$\,cm and matches the published open-loop L2 ($0.35$\,m ST-P3), with a per-scene success breakdown
+(59--98\% of plans within 1\,m of the human path) that quantization does not change---so the
+open-loop blindness is a property of the metric, reproduced on the deployment hardware itself. We are
+explicit about scope throughout: group-wise recovery is partial on 3 scenarios, several scenes are
+failed by \emph{every} configuration including FP16, and the packed-INT4 speedup requires a kernel we
+have not yet written.
+\end{abstract}
+
+\tableofcontents
+
+\section{Introduction}
+On-board inference for end-to-end driving stacks motivates compressing the language backbones of
+driving VLAs. The prevailing evidence---near-lossless 4-bit weight quantization on open-loop nuScenes
+planning---suggests this is essentially free. We show this evidence is structurally unable to support
+a safety claim, that closed-loop evaluation tells a different and more actionable story, and that both
+conclusions reproduce on real edge hardware. We organize around five questions:
+\begin{itemize}
+\item[\textbf{Q1}] Can open-loop nuScenes L2 see quantization damage?
+\item[\textbf{Q2}] Does quantization affect \emph{closed-loop} behavior, where the logged ego
+trajectory cannot be coasted on?
+\item[\textbf{Q3}] What property of the quantizer governs the effect, and what is the fix?
+\item[\textbf{Q4}] What is the memory/latency profile on an edge accelerator?
+\item[\textbf{Q5}] Do the accuracy conclusions hold when the model actually runs on that accelerator?
+\end{itemize}
+Contributions: a controlled demonstration of open-loop blindness ($19\times$ ego-ablation); the first
+closed-loop characterization of weight-quantization effects in a driving VLA; the identification of
+scale \emph{granularity} (not bit-width) as the governing factor with a near-free fix; and end-to-end
+\emph{on-Orin} systems and accuracy measurements, including a per-scene success breakdown.
+
+\section{Related Work and Positioning}
+\textbf{Driving planners and VLAs.} UniAD~\cite{uniad} introduced a planning-oriented, query-based
+perception stack (multi-camera ResNet-101, temporal BEVFormer~\cite{bevformer}, track/map/motion/
+occupancy heads). VAD~\cite{vad} vectorized the scene for efficiency. OpenDriveVLA~\cite{opendrivevla}
+reuses UniAD track+map perception as a vision tower for a Qwen2.5 language/action head that emits
+trajectories as text, reaching state-of-the-art open-loop L2 (Table~\ref{tab:planners}).
+\textbf{Open-loop critique.} ``Is Ego Status All You Need?''~\cite{egostatus} showed nuScenes
+open-loop planning is dominated by ego state and proposed road-adherence metrics; we quantify the
+effect ($19\times$) specifically as it bears on \emph{quantization} evaluation.
+\textbf{Closed-loop neural simulation.} NeuroNCAP~\cite{neuroncap} couples a NeuRAD~\cite{neurad}
+neural renderer to a safety-test protocol (frontal/side/stationary collision scenarios), enabling
+photorealistic closed-loop evaluation and revealing that open-loop-strong planners fail
+safety-critical closed-loop tests. \textbf{LLM weight quantization.} Round-to-nearest (RTN),
+GPTQ~\cite{gptq} (Hessian-weighted error minimization), and AWQ~\cite{awq} (activation-aware scaling)
+differ in how they choose quantization grids; all rely on \emph{group-wise} (block) scales to bound
+weight-outlier damage, a practice motivated by the outlier phenomenon in LLMs~\cite{llmint8,
+smoothquant}. \textbf{Our positioning.} Prior quantization work targets language benchmarks
+(perplexity, MMLU); prior driving-eval work does not study quantization. We are, to our knowledge,
+the first to evaluate driving-VLA quantization \emph{closed-loop} and \emph{on-device}, and to show
+that the standard open-loop metric certifies a policy the closed-loop test rejects.
+
+\begin{table}[h]\centering
+\caption{Open-loop nuScenes planning context (ST-P3 L2, meters; lower better). Baseline numbers as
+reported by the respective papers; OpenDriveVLA-0.5B is our study model. Our contribution is not a
+new planner but the observation that this metric cannot separate FP16 from quantized policies.}
+\label{tab:planners}
+\begin{tabular}{lcccc c}
+\toprule
+Method & 1s & 2s & 3s & Avg. & Coll.\ avg (\%) \\
+\midrule
+UniAD~\cite{uniad}            & 0.44 & 0.67 & 0.96 & 0.69 & 0.12 \\
+VAD~\cite{vad}                & 0.17 & 0.34 & 0.60 & 0.37 & 0.14 \\
+OpenDriveVLA-7B~\cite{opendrivevla}  & 0.15 & 0.31 & 0.55 & 0.33 & 0.10 \\
+OpenDriveVLA-3B~\cite{opendrivevla}  & 0.14 & 0.30 & 0.55 & 0.33 & 0.10 \\
+\textbf{OpenDriveVLA-0.5B} (ours)    & 0.15 & 0.32 & 0.57 & 0.35 & 0.09 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Method}
+\subsection{Model and quantization scope}
+OpenDriveVLA-0.5B pairs Qwen2.5-0.5B (hidden $896$, $24$ layers) with UniAD stage-1 track+map
+perception. We apply weight-only post-training quantization to the \textbf{168 Linear layers of the
+Qwen backbone ($357.8$\,M parameters)}, leaving perception, the scene/track/map projectors, token
+embeddings, and the output head in floating point, so any observed effect is attributable to the
+language head's $W_b$ precision. Weights are dequantized to the compute dtype for inference
+(\emph{fake-quant}): the arithmetic path is unchanged, so accuracy effects are real while packed
+memory/latency gains are projected until a packed kernel is added (Sec.~\ref{sec:orin}).
+
+\subsection{Quantization methodology and why granularity matters}
+\label{sec:quantmethod}
+\textbf{Round-to-nearest (RTN).} For a weight block $\mathbf{w}$ and $b$ bits, symmetric RTN uses a
+single scale $s=\max_i|w_i|/(2^{b-1}-1)$ and maps $\hat w_i = s\cdot\mathrm{clip}\!\big(\mathrm{round}
+(w_i/s),\,-2^{b-1},\,2^{b-1}-1\big)$; asymmetric RTN adds a zero-point over $[\min,\max]$. We use RTN
+deliberately: it is data-free and introduces \emph{no} optimization of its own, so varying only the
+block over which $s$ is shared isolates the effect of \emph{scale granularity}.
+
+\textbf{Granularity.} \emph{Per-output-channel} shares one scale across an entire weight row (all
+$896$/intermediate inputs); \emph{group-wise} ($g{=}128$) uses an independent scale per contiguous
+block of $g$ input weights. The extra storage is one FP16 scale per group, i.e.\ $16/g$ bits/weight
+($0.125$ at $g{=}128$; Table~\ref{tab:mem}).
+
+\textbf{Why group-wise works (the outlier--scale mechanism).} The shared scale is set by the block's
+largest magnitude, $s=\max|w|/(2^{b-1}-1)$. A single outlier weight inflates $s$ and therefore
+coarsens the quantization grid for \emph{every} small, signal-carrying weight that shares the scale.
+The effective per-weight rounding error is $\propto s$; at INT4 the grid has only $15$ levels, so one
+outlier in a $896$-wide row can multiply the error of the whole row. Group-wise scales confine each
+outlier to its own $128$-weight block, bounding the damage. This is the same rationale behind
+LLM outlier handling~\cite{llmint8,smoothquant} and behind the group-wise default in GPTQ and AWQ; our
+contribution is to show it is \emph{decisive for closed-loop driving behavior}, not merely for
+perplexity. Relation to prior methods (Table~\ref{tab:quantmethods}): GPTQ additionally minimizes a
+Hessian-weighted reconstruction error via sequential updates; AWQ additionally rescales salient
+channels using activation statistics. Both are complementary to---and layer on top of---the
+granularity we isolate; we use plain group-wise RTN to attribute the closed-loop recovery purely to
+granularity, and note GPTQ/AWQ would be expected to match or exceed it at equal bits.
+
+\begin{table}[h]\centering
+\caption{Weight-only PTQ methods. Our study isolates \emph{granularity} with RTN; GPTQ/AWQ add
+orthogonal error-minimization on top of group-wise scales.}
+\label{tab:quantmethods}
+\begin{tabular}{lccccc}
+\toprule
+Method & data-free & grid choice & granularity & extra cost & studied here \\
+\midrule
+RTN per-channel & yes & $\max|w|$ & per-row & --- & baseline (collapses) \\
+\textbf{RTN group-128} & yes & $\max|w|$/block & per-128 & $+0.125$ b/w & \textbf{fix} \\
+GPTQ~\cite{gptq} & no (calib.) & Hessian-weighted & group-wise & calib.\ pass & related \\
+AWQ~\cite{awq} & no (calib.) & activation-scaled & group-wise & calib.\ pass & related \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Open-loop evaluation}
+We evaluate on the $162$ nuScenes-mini $\cap$ validation samples under the ST-P3 and UniAD L2
+protocols. The \emph{ego-ablation} zeroes the ego-state vector and the $2$\,s history trajectory in
+the planner prompt, leaving perception untouched, to test how much of L2 is ego-extrapolation.
+
+\subsection{Closed-loop harness}
+We built a native (Docker-free) three-process harness communicating over localhost HTTP: (i) the
+NeuroNCAP orchestrator (kinematic vehicle model, collision check, NCAP scoring); (ii) the NeuRAD
+renderer serving six photorealistic camera views at the ego's \emph{driven} pose each step; (iii) an
+OpenDriveVLA model node that reconstructs the UniAD perception input from rendered frames
+(normalization/padding, lidar-to-image projection, an 18-vector CAN-bus signal, ego-state prompt) and
+exposes an \emph{in-place re-quantization} endpoint so techniques are swept without reloading. We
+verified the renderer produces photorealistic frames (per-camera intensity std $25$--$49$ after
+installing tiny-cuda-nn; a missing-tcnn fallback had previously rendered flat-grey blanks, and all
+pre-fix closed-loop numbers were discarded).
+
+\subsection{Metric: generation coherence}
+Our primary closed-loop metric is \textbf{generation coherence}: the fraction of frames on which the
+planner emits a well-formed (non-degenerate) trajectory, computed from the logged per-frame plans. A
+degenerate all-zero plan corresponds to malformed/empty model output that triggers a stay-in-place
+fallback. We treat collision/NCAP as a secondary, confounded proxy (Sec.~\ref{sec:closedloop}).
+
+\subsection{On-device methodology (capture--replay)}
+\label{sec:replay}
+To measure accuracy on the Orin without porting UniAD's custom CUDA perception ops, we exploit that
+the fused planner input (\texttt{inputs\_embeds}) is \emph{quantization-independent} (perception and
+token embeddings are unquantized). We capture the fused inputs for each nuScenes sample from the A100
+full pipeline, transfer them to the Orin, replay them through the decoder-only planner at each
+precision, and score the emitted trajectories with the \emph{same} evaluator. This isolates device
+and quantization while using the real perception features and real weights.
+
+\section{Results}
+\subsection{Q1: Open-loop L2 is blind}
+\begin{table}[h]\centering
+\caption{Open-loop nuScenes-mini ($n{=}162$), ST-P3 L2 (m).}
+\label{tab:openloop}
+\begin{tabular}{lcc}
+\toprule
+Setting & L2 (m) & well-formed \\
+\midrule
+FP16 & 0.33 & 100\% \\
+INT8 (per-channel) & 0.33 & 100\% \\
+INT4 (per-channel) & 0.33 & 100\% \\
+INT3 & 1.91 & 92\% \\
+INT2 & 6.45 & 0\% \\
+\midrule
+FP16, ego-state+history zeroed & \textbf{6.38} ($19\times$) & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+Weight quantization is lossless to INT4; the INT3/INT2 degradation is generation collapse (malformed
+text), not graded planning. The ego-ablation shows the metric is $\approx$ ego-extrapolation: with
+ego state removed the plan collapses $19\times$ while outputs stay well-formed. Open-loop L2 thus
+cannot reflect perception/planning, nor quantization damage to them---the same phenomenon that makes
+$0.5$B/$3$B/$7$B report near-identical L2 (Table~\ref{tab:planners}).
+
+\subsection{Q2--Q3: Closed-loop reveals collapse; granularity is the fix}
+\label{sec:closedloop}
+\begin{table}[h]\centering
+\caption{NeuroNCAP closed-loop generation coherence (well-formed predicted-frame rate, \%),
+\emph{real-camera} NeuRAD rendering, \textbf{14 scenes / 16 scenario instances}, 10 paired seeds each.}
+\label{tab:coherence}
+\begin{tabular}{lccc}
+\toprule
+scene / scenario & FP16 & INT4 per-channel & INT4 group-128 \\
+\midrule
+0099 stationary & 60.6 & \textbf{0.0} & 30.0 \\
+0101 stationary & 75.0 & \textbf{14.3} & 46.7 \\
+0103 frontal & 74.3 & \textbf{0.0} & 72.9 \\
+0106 frontal & 66.9 & \textbf{0.0} & 78.7 \\
+0108 side & 85.7 & \textbf{0.0} & 91.6 \\
+0108 stationary & 72.4 & \textbf{0.0} & 74.7 \\
+0110 frontal & 70.7 & \textbf{0.0} & 74.3 \\
+0278 side & 75.3 & \textbf{0.0} & 67.9 \\
+0278 stationary & 79.7 & \textbf{0.0} & 83.5 \\
+0331 stationary & 83.2 & \textbf{5.0} & 97.5 \\
+0346 frontal & 83.1 & \textbf{15.6} & 86.9 \\
+0783 stationary & 72.4 & \textbf{0.0} & 73.1 \\
+0796 stationary & 72.4 & \textbf{8.6} & 57.9 \\
+0921 side & 90.0 & \textbf{14.2} & 90.4 \\
+0923 frontal & 74.6 & \textbf{0.8} & 72.1 \\
+0966 stationary & 79.4 & \textbf{0.0} & 78.3 \\
+\midrule
+\textbf{mean} & \textbf{76.0} & \textbf{3.7} & \textbf{73.5} \\
+\bottomrule
+\end{tabular}
+\end{table}
+Across all 16 scenario instances, per-channel INT4 collapses generation ($\le 15\%$ well-formed on
+\textbf{15/16}, mean $3.7\%$) while group-wise INT4 recovers the bulk of FP16 coherence (mean
+$73.5\%$ vs $76.0\%$, $\ge 85\%$ of FP16 on \textbf{13/16}). The same per-channel INT4 is lossless
+in-distribution (Table~\ref{tab:openloop}), so the failure is a quantization\,$\times$\,domain-shift
+interaction, governed by the granularity mechanism of Sec.~\ref{sec:quantmethod}. Group-wise only
+\emph{partially} recovers on 3 scenarios (0099, 0101, 0796); we do not claim exact equivalence.
+
+\paragraph{Collision/NCAP is a confounded proxy.} On several scenes (e.g.\ 0796, 0278-stationary)
+\emph{every} configuration including FP16 collides $10/10$: the base policy cannot clear those under
+our rendering, so collisions cannot isolate quantization there even though coherence still separates
+the configs. We therefore lead with coherence.
+
+\subsection{Q4: Memory and edge profile}
+\begin{table}[h]\centering
+\caption{Backbone weight footprint ($357.8$\,M params); effective bits include per-group FP16 scales.}
+\label{tab:mem}
+\begin{tabular}{lcc}
+\toprule
+Precision & eff.\ bits/weight & backbone weights \\
+\midrule
+FP16 & 16.0 & $\approx 1.0$\,GB \\
+INT8 per-channel & 8.06 & $\approx 0.50$\,GB \\
+INT4 per-channel & 4.06 & $\approx 0.25$\,GB \\
+INT4 group-128 & 4.125 & $\approx 0.26$\,GB \\
+\bottomrule
+\end{tabular}
+\end{table}
+The robust recipe (group-wise INT4) is $\approx 0.26$\,GB; the whole node fits in $3$--$5$\,GB, so
+the planner is trivial for a Jetson AGX Orin. The obstacle is perception \emph{throughput}: UniAD's
+six-camera ResNet-101 + deformable-attention BEVFormer runs FP32 with custom CUDA kernels, far from
+real-time on Orin without a TensorRT-INT8 port. Edge effort should target perception; the quantized
+planner is a solved sub-problem.
+
+\subsection{Q5: On-device measurement (Jetson AGX Orin 64\,GB)}
+\label{sec:orin}
+We ran the planner on a real \textbf{AGX Orin 64\,GB} (JetPack~6 / L4T~R36.4.7, CUDA cap 8.7,
+PyTorch~2.8) with the actual OpenDriveVLA-0.5B decoder weights.
+
+\begin{table}[h]\centering
+\caption{\textbf{Measured on AGX Orin.} Planner systems profile (1024-token context $\to$ 60 decoded
+tokens, eager attention, default clocks, median of 30). Latency is identical across precisions
+(fake-quant); the deployable win is the static packed footprint.}
+\label{tab:orinsys}
+\begin{tabular}{lcccc}
+\toprule
+Config & median latency & throughput & runtime peak & packed weights \\
+\midrule
+FP16             & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & $0.716$\,GB \\
+INT8 group-128   & $4.01$\,s & $15.0$ tok/s & $2.88$\,GB & $0.363$\,GB \\
+INT4 group-128   & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & \textbf{$0.185$\,GB} \\
+INT4 per-channel & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & $0.179$\,GB \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{On-device accuracy reproduces the A100 and the published result.} Replaying real inputs
+(Sec.~\ref{sec:replay}) on the Orin over all $162$ mini-val samples yields FP16 ST-P3 L2
+$0.146/0.317/0.571$\,m ($1/2/3$\,s; avg $0.345$\,m)---matching OpenDriveVLA-0.5B's reported
+$0.35$\,m (Table~\ref{tab:planners})---with group-INT4 $0.151/0.327/0.583$ and per-channel-INT4
+$0.156/0.362/0.652$. The Orin reproduces A100 trajectories to $\approx 1.1$\,cm mean (FP16) /
+$1.5$\,cm (group-INT4). Crucially, the \emph{per-sample} W4 plans already differ from FP16 by
+$14$--$24$\,cm while aggregate L2 moves $<3$\,cm: open-loop L2 averages the perturbation away
+\emph{on the deployment hardware itself}.
+
+\begin{table}[h]\centering
+\caption{\textbf{Measured on AGX Orin.} Per-scene open-loop success: \% of predicted plans within a
+distance of the human (GT) trajectory (mean L2 over $3$\,s), all $162$ mini-val samples, $0$
+malformed. Group-INT4 tracks FP16 per scene; success varies far more by \emph{scene difficulty} than
+by precision.}
+\label{tab:scene}
+\begin{tabular}{lccccc}
+\toprule
+scene (character) & N & mean L2 & $\le1.0$\,m & $\le1.5$\,m & $\le2.0$\,m \\
+\midrule
+0553 (wait at intersection)   & 41 & 0.00 & 97.6\% & 97.6\% & 97.6\% \\
+0796 (busy street)            & 40 & 0.30 & 95.0\% & 95.0\% & 95.0\% \\
+0103 (peds, turning car)      & 40 & 0.88 & 67.5\% & 85.0\% & 85.0\% \\
+0916 (parking-lot maneuver)   & 41 & 1.10 & 58.5\% & 75.6\% & 85.4\% \\
+\midrule
+\textbf{ALL (FP16)}           & 162 & 0.57 & \textbf{79.6\%} & \textbf{88.3\%} & \textbf{90.7\%} \\
+ALL (INT4 group-128)          & 162 & 0.58 & 78.4\% & 88.3\% & 90.1\% \\
+ALL (INT4 per-channel)        & 162 & 0.65 & 80.9\% & 87.7\% & 89.5\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+Overall $\sim$80\% of plans land within $1$\,m of the human path ($88\%$ within $1.5$\,m), but this
+ranges $58.5\%$ (dynamic parking-lot maneuvering) to $97.6\%$ (a stationary ``wait at intersection''
+clip where ``predict stopped'' is trivially near-exact---an instance of the ego-extrapolation effect
+of Q1). Open-loop success cannot separate the precisions even per scene, which is precisely why
+closed-loop coherence (Table~\ref{tab:coherence}) is the appropriate metric.
+
+\section{Discussion}
+The study composes into one message: open-loop L2 \emph{hides} quantization damage because it is
+ego-extrapolation; closed-loop \emph{reveals} it because perception and planning are on the critical
+path; the revealed damage is a granularity artifact with a near-free fix; and both the blindness and
+the fix reproduce on real Orin hardware. Practitioners should (i) never certify a quantized driving
+policy on open-loop L2, and (ii) default to group-wise INT4 for the planner.
+
+\section{Threats to Validity}
+\textbf{Scene coverage:} closed-loop spans all 14 released NeuroNCAP scenes (16 scenario instances),
+not all of nuScenes. \textbf{Renderer domain gap:} rendered inputs are OOD to real nuScenes; on
+several scenes even FP16 fails the collision test ($10/10$), so absolute NCAP numbers are not
+in-distribution-comparable and our claims are relative. \textbf{Partial recovery:} group-wise ties/
+beats FP16 on 13/16 but partially recovers on 3 (0099, 0101, 0796). \textbf{Metric proxy:} collision/
+NCAP is confounded; we lead with coherence. \textbf{Fake-quant:} the static footprint is measured
+on-device, but a packed-INT4 \emph{speedup} needs a custom kernel (Marlin/AWQ-style) + TensorRT and is
+not yet realized---hence flat on-Orin latency. \textbf{On-Orin accuracy scope:} planner-only replay
+(perception not ported to sm\_87), fp16 replay, mini-val. \textbf{AWQ/INT3/INT2:} characterized only
+in an earlier single-scene, pre-renderer-fix setup and not re-reported here.
+
+\section{Reproducibility}
+The public release (\texttt{github.com/Omega1029/DrivingVLA}) includes: the open-loop eval and
+quantization sweeps with the ego-ablation toggle; the three-process closed-loop harness and in-place
+re-quantization service; the 4-GPU-lane 14-scene benchmark runner; the on-device suite
+(\texttt{orin/bench\_planner\_orin.py}, \texttt{replay\_accuracy.py}, \texttt{subset\_l2.py},
+\texttt{scene\_success.py}) and result JSONs; and the closed-loop video renderers. All numbers here
+are produced by those scripts; estimates are marked.
+
+\section{Conclusion}
+For quantized autonomous-driving VLAs, open-loop L2 is blind ($19\times$ ego-ablation) and closed-loop
+is necessary: there, per-channel INT4 collapses generation under deployment-domain shift while
+group-wise INT4 ($\approx 0.1$ extra bits/weight) matches FP16. On a real AGX Orin the planner fits
+in $2.88$\,GB, packs $3.9\times$ at group-INT4, and reproduces both the published accuracy and the
+metric's blindness. Use closed-loop coherence as the metric and group-wise INT4 as the recipe.
+
+\begin{thebibliography}{9}
+\bibitem{opendrivevla} X.\ Zhou et al. \emph{OpenDriveVLA: Towards End-to-end Autonomous Driving with
+Large Vision Language Action Model}. arXiv:2503.23463, 2025.
+\bibitem{uniad} Y.\ Hu et al. \emph{Planning-oriented Autonomous Driving (UniAD)}. CVPR 2023.
+\bibitem{vad} B.\ Jiang et al. \emph{VAD: Vectorized Scene Representation for Efficient Autonomous
+Driving}. ICCV 2023.
+\bibitem{egostatus} Z.\ Li et al. \emph{Is Ego Status All You Need for Open-Loop End-to-End
+Autonomous Driving?} CVPR 2024. arXiv:2312.03031.
+\bibitem{neuroncap} W.\ Ljungbergh et al. \emph{NeuroNCAP: Photorealistic Closed-Loop Safety Testing
+for Autonomous Driving}. ECCV 2024. arXiv:2404.07762.
+\bibitem{neurad} A.\ Tonderski et al. \emph{NeuRAD: Neural Rendering for Autonomous Driving}. CVPR 2024.
+\bibitem{bevformer} Z.\ Li et al. \emph{BEVFormer}. ECCV 2022.
+\bibitem{awq} J.\ Lin et al. \emph{AWQ: Activation-aware Weight Quantization for On-Device LLM
+Compression and Acceleration}. MLSys 2024 (Best Paper). arXiv:2306.00978.
+\bibitem{gptq} E.\ Frantar et al. \emph{GPTQ: Accurate Post-Training Quantization for Generative
+Pre-trained Transformers}. ICLR 2023. arXiv:2210.17323.
+\bibitem{llmint8} T.\ Dettmers et al. \emph{LLM.int8(): 8-bit Matrix Multiplication for Transformers
+at Scale}. NeurIPS 2022. arXiv:2208.07339.
+\bibitem{smoothquant} G.\ Xiao et al. \emph{SmoothQuant: Accurate and Efficient Post-Training
+Quantization for Large Language Models}. ICML 2023. arXiv:2211.10438.
+\end{thebibliography}
+\end{document}

@@ -1,12 +1,19 @@
 # Papers
 
-Five manuscripts from the OpenDriveVLA quantization study. All share four authors — Justin Williams,
+Manuscripts from the OpenDriveVLA quantization study. All share four authors — Justin Williams,
 Kishor Datta Gupta, Roy George, Mrinmoy Sarkar (Clark Atlanta University) — and **unpublished draft**
 status. Each `.tex` has a matching `*.README.md` with its thesis, target venue, key numbers, and
 build notes.
 
+**`opendrivevla_full_paper.tex` is the combined, comprehensive paper** — all evaluations
+(open-loop, closed-loop 14-scene, on-device Orin systems + accuracy + per-scene success), the
+quantization methodology (RTN / per-channel vs group-wise / the outlier–scale mechanism), and
+comparison tables to prior planners (UniAD/VAD/OpenDriveVLA) and quantizers (RTN/GPTQ/AWQ). The five
+drafts below remain for venue-specific submission.
+
 | File | Venue | One-line thesis |
 |------|-------|-----------------|
+| `opendrivevla_full_paper.tex` | **Combined** | **Everything: blindness + granularity fix + edge + on-Orin systems/accuracy/per-scene, with methodology and prior-method comparisons.** |
 | `workshop1_openloop_blind.tex` | Workshop | Open-loop nuScenes L2 is ~ego-extrapolation (19× ablation), so "INT4 is lossless" is a metric artifact. |
 | `workshop2_granularity.tex` | Workshop | Scale **granularity**, not bit-width, decides whether quantized generation survives domain shift. |
 | `workshop3_edge_memory.tex` | Workshop | The planner is free for the edge; **perception** is the memory/latency wall. |
