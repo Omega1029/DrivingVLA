@@ -42,6 +42,27 @@ the **static footprint** (3.9× at W4-g128), not speed.
   though per-sample W4 plans differ from FP16 by **14–24 cm** — the metric averages it away. This is
   the central thesis, now reproduced on the real edge target.
 
+## Per-scene success on the Orin (all 162 mini-val samples, 4 scenes)
+Success = % of predictions within a distance of the human (GT) trajectory, by mean L2 over 3 s.
+Files: `results/replay162_orin_*.json`, `results/scene_success.txt`.
+
+**FP16** (W4-g128 within ~1% per scene; 0 malformed everywhere):
+
+| scene | N | mean L2 | ≤1.0 m | ≤1.5 m | ≤2.0 m |
+|---|---|---|---|---|---|
+| scene-0553 (wait at intersection) | 41 | 0.00 | 97.6% | 97.6% | 97.6% |
+| scene-0796 (busy street) | 40 | 0.30 | 95.0% | 95.0% | 95.0% |
+| scene-0103 (peds, turning car) | 40 | 0.88 | 67.5% | 85.0% | 85.0% |
+| scene-0916 (parking lot) | 41 | 1.10 | 58.5% | 75.6% | 85.4% |
+| **ALL** | **162** | **0.57** | **79.6%** | **88.3%** | **90.7%** |
+
+Overall ~80% of plans land within 1 m of the human path; per-scene ranges 59–98%. W4-g128 tracks
+FP16 per scene (ALL 78.4% vs 79.6% ≤1 m); W4-perch similar (80.9%). Note scene-0553 is a
+stationary "wait at intersection" clip — GT ≈ stay-put, so "predict stopped" is trivially near-exact
+(mean L2 ~0); this is the ego-extrapolation effect and inflates that scene's success. The harder,
+dynamic scenes (0103 turning, 0916 parking-lot maneuvering) are where success drops — and where
+quantization *could* matter, yet open-loop success still can't separate the configs.
+
 ## Caveats
 Planner-only (perception not ported to sm_87 yet); fp16 replay of cached perception (so absolute L2
 differs slightly from the bf16 full-pipeline 0.33 m, and is over a 40-sample subset); fake-quant
