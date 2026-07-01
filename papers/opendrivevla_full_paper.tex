@@ -1,12 +1,10 @@
-\documentclass[11pt]{article}
+\documentclass[conference]{IEEEtran}
 \usepackage[utf8]{inputenc}
-\usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
-\usepackage{authblk}
 
 % ============================================================================
 % COMBINED / COMPREHENSIVE PAPER
@@ -20,12 +18,8 @@
 \title{\textbf{What Open-Loop Hides and Closed-Loop Reveals:\\
 Weight Quantization, Generation Coherence, and On-Device Deployment\\
 of Autonomous-Driving Vision--Language--Action Models}}
-\author[1]{Justin Williams}
-\author[1]{Kishor Datta Gupta}
-\author[1]{Roy George}
-\author[1]{Mrinmoy Sarkar}
-\affil[1]{Clark Atlanta University \quad \texttt{justinwilliamstech693@gmail.com}}
-\date{}
+\author{\IEEEauthorblockN{Justin Williams, Kishor Datta Gupta, Roy George, Mrinmoy Sarkar}
+\IEEEauthorblockA{Clark Atlanta University \\ \texttt{justinwilliamstech693@gmail.com}}}
 
 \begin{document}
 \maketitle
@@ -56,8 +50,10 @@ explicit about scope throughout: group-wise recovery is partial on 3 scenarios, 
 failed by \emph{every} configuration including FP16, and the packed-INT4 speedup requires a kernel we
 have not yet written.
 \end{abstract}
+\begin{IEEEkeywords}
+vision--language--action models, autonomous driving, post-training quantization, group-wise INT4, closed-loop evaluation, generation coherence, edge deployment, Jetson Orin
+\end{IEEEkeywords}
 
-\tableofcontents
 
 \section{Introduction}
 On-board inference for end-to-end driving stacks motivates compressing the language backbones of
@@ -99,7 +95,7 @@ smoothquant}. \textbf{Our positioning.} Prior quantization work targets language
 the first to evaluate driving-VLA quantization \emph{closed-loop} and \emph{on-device}, and to show
 that the standard open-loop metric certifies a policy the closed-loop test rejects.
 
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{Open-loop nuScenes planning context (ST-P3 L2, meters; lower better). Baseline numbers as
 reported by the respective papers; OpenDriveVLA-0.5B is our study model. Our contribution is not a
 new planner but the observation that this metric cannot separate FP16 from quantized policies.}
@@ -115,7 +111,7 @@ OpenDriveVLA-3B~\cite{opendrivevla}  & 0.14 & 0.30 & 0.55 & 0.33 & 0.10 \\
 \textbf{OpenDriveVLA-0.5B} (ours)    & 0.15 & 0.32 & 0.57 & 0.35 & 0.09 \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 \section{Method}
 \subsection{Model and quantization scope}
@@ -154,7 +150,7 @@ channels using activation statistics. Both are complementary to---and layer on t
 granularity we isolate; we use plain group-wise RTN to attribute the closed-loop recovery purely to
 granularity, and note GPTQ/AWQ would be expected to match or exceed it at equal bits.
 
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{Weight-only PTQ methods. Our study isolates \emph{granularity} with RTN; GPTQ/AWQ add
 orthogonal error-minimization on top of group-wise scales.}
 \label{tab:quantmethods}
@@ -168,7 +164,7 @@ GPTQ~\cite{gptq} & no (calib.) & Hessian-weighted & group-wise & calib.\ pass & 
 AWQ~\cite{awq} & no (calib.) & activation-scaled & group-wise & calib.\ pass & related \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 \subsection{Open-loop evaluation}
 We evaluate on the $162$ nuScenes-mini $\cap$ validation samples under the ST-P3 and UniAD L2
@@ -203,7 +199,7 @@ and quantization while using the real perception features and real weights.
 
 \section{Results}
 \subsection{Q1: Open-loop L2 is blind}
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{Open-loop nuScenes-mini ($n{=}162$), ST-P3 L2 (m).}
 \label{tab:openloop}
 \begin{tabular}{lcc}
@@ -219,7 +215,7 @@ INT2 & 6.45 & 0\% \\
 FP16, ego-state+history zeroed & \textbf{6.38} ($19\times$) & 100\% \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 Weight quantization is lossless to INT4; the INT3/INT2 degradation is generation collapse (malformed
 text), not graded planning. The ego-ablation shows the metric is $\approx$ ego-extrapolation: with
 ego state removed the plan collapses $19\times$ while outputs stay well-formed. Open-loop L2 thus
@@ -228,7 +224,7 @@ $0.5$B/$3$B/$7$B report near-identical L2 (Table~\ref{tab:planners}).
 
 \subsection{Q2--Q3: Closed-loop reveals collapse; granularity is the fix}
 \label{sec:closedloop}
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{NeuroNCAP closed-loop generation coherence (well-formed predicted-frame rate, \%),
 \emph{real-camera} NeuRAD rendering, \textbf{14 scenes / 16 scenario instances}, 10 paired seeds each.}
 \label{tab:coherence}
@@ -256,7 +252,7 @@ scene / scenario & FP16 & INT4 per-channel & INT4 group-128 \\
 \textbf{mean} & \textbf{76.0} & \textbf{3.7} & \textbf{73.5} \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 Across all 16 scenario instances, per-channel INT4 collapses generation ($\le 15\%$ well-formed on
 \textbf{15/16}, mean $3.7\%$) while group-wise INT4 recovers the bulk of FP16 coherence (mean
 $73.5\%$ vs $76.0\%$, $\ge 85\%$ of FP16 on \textbf{13/16}). The same per-channel INT4 is lossless
@@ -270,7 +266,7 @@ our rendering, so collisions cannot isolate quantization there even though coher
 the configs. We therefore lead with coherence.
 
 \subsection{Q4: Memory and edge profile}
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{Backbone weight footprint ($357.8$\,M params); effective bits include per-group FP16 scales.}
 \label{tab:mem}
 \begin{tabular}{lcc}
@@ -283,7 +279,7 @@ INT4 per-channel & 4.06 & $\approx 0.25$\,GB \\
 INT4 group-128 & 4.125 & $\approx 0.26$\,GB \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 The robust recipe (group-wise INT4) is $\approx 0.26$\,GB; the whole node fits in $3$--$5$\,GB, so
 the planner is trivial for a Jetson AGX Orin. The obstacle is perception \emph{throughput}: UniAD's
 six-camera ResNet-101 + deformable-attention BEVFormer runs FP32 with custom CUDA kernels, far from
@@ -295,7 +291,7 @@ planner is a solved sub-problem.
 We ran the planner on a real \textbf{AGX Orin 64\,GB} (JetPack~6 / L4T~R36.4.7, CUDA cap 8.7,
 PyTorch~2.8) with the actual OpenDriveVLA-0.5B decoder weights.
 
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{\textbf{Measured on AGX Orin.} Planner systems profile (1024-token context $\to$ 60 decoded
 tokens, eager attention, default clocks, median of 30). Latency is identical across precisions
 (fake-quant); the deployable win is the static packed footprint.}
@@ -310,7 +306,7 @@ INT4 group-128   & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & \textbf{$0.185$\,GB} 
 INT4 per-channel & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & $0.179$\,GB \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 \paragraph{On-device accuracy reproduces the A100 and the published result.} Replaying real inputs
 (Sec.~\ref{sec:replay}) on the Orin over all $162$ mini-val samples yields FP16 ST-P3 L2
@@ -321,7 +317,7 @@ $1.5$\,cm (group-INT4). Crucially, the \emph{per-sample} W4 plans already differ
 $14$--$24$\,cm while aggregate L2 moves $<3$\,cm: open-loop L2 averages the perturbation away
 \emph{on the deployment hardware itself}.
 
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{\textbf{Measured on AGX Orin.} Per-scene open-loop success: \% of predicted plans within a
 distance of the human (GT) trajectory (mean L2 over $3$\,s), all $162$ mini-val samples, $0$
 malformed. Group-INT4 tracks FP16 per scene; success varies far more by \emph{scene difficulty} than
@@ -341,7 +337,7 @@ ALL (INT4 group-128)          & 162 & 0.58 & 78.4\% & 88.3\% & 90.1\% \\
 ALL (INT4 per-channel)        & 162 & 0.65 & 80.9\% & 87.7\% & 89.5\% \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 Overall $\sim$80\% of plans land within $1$\,m of the human path ($88\%$ within $1.5$\,m), but this
 ranges $58.5\%$ (dynamic parking-lot maneuvering) to $97.6\%$ (a stationary ``wait at intersection''
 clip where ``predict stopped'' is trivially near-exact---an instance of the ego-extrapolation effect

@@ -1,12 +1,10 @@
-\documentclass[11pt]{article}
+\documentclass[conference]{IEEEtran}
 \usepackage[utf8]{inputenc}
-\usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
-\usepackage{authblk}
 
 % ============================================================================
 % WORKSHOP PAPER 2 -- quantization-technique angle
@@ -16,12 +14,8 @@
 
 \title{\textbf{Granularity, Not Bit-Width: Group-Wise INT4 Preserves Generation\\
 Coherence of Driving-VLA Planners Under Deployment-Domain Shift}}
-\author[1]{Justin Williams}
-\author[1]{Kishor Datta Gupta}
-\author[1]{Roy George}
-\author[1]{Mrinmoy Sarkar}
-\affil[1]{Clark Atlanta University \quad \texttt{justinwilliamstech693@gmail.com}}
-\date{}
+\author{\IEEEauthorblockN{Justin Williams, Kishor Datta Gupta, Roy George, Mrinmoy Sarkar}
+\IEEEauthorblockA{Clark Atlanta University \\ \texttt{justinwilliamstech693@gmail.com}}}
 
 \begin{document}
 \maketitle
@@ -41,6 +35,9 @@ precision per se. We report generation-coherence rate as the clean metric and di
 collision/NCAP counts are a confounded, scene-dependent proxy (on one scene every config including
 FP16 collides).
 \end{abstract}
+\begin{IEEEkeywords}
+vision--language--action models, autonomous driving, post-training quantization, group-wise INT4, closed-loop evaluation, generation coherence, edge deployment, Jetson Orin
+\end{IEEEkeywords}
 
 \section{Introduction}
 Group-wise (block-wise) weight quantization with per-group scales is the de-facto standard for
@@ -61,7 +58,7 @@ advances the vehicle. Ten random actor-jitter seeds are run \emph{paired} across
 (non-degenerate) trajectory, computed from the logged per-frame plans.
 
 \section{Results}
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{Closed-loop generation coherence (well-formed predicted-frame rate), \emph{real-camera}
 NeuRAD rendering, \textbf{14 scenes / 16 scenario instances}, 10 paired seeds each.}
 \begin{tabular}{lcc}
@@ -73,7 +70,7 @@ INT4 per-channel (naive)   & \textbf{3.7\%}  & collapses ($\le 15\%$) on 15/16 \
 INT4 group-128             & \textbf{73.5\%} & recovers ($\ge 85\%$ of FP16) on 13/16 \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 \paragraph{The effect is domain-shift--induced, not 4-bit precision.} On real nuScenes images
 (open-loop) the \emph{same} per-channel INT4 is lossless (0.33\,m L2, well-formed). It collapses

@@ -1,12 +1,10 @@
-\documentclass[11pt]{article}
+\documentclass[conference]{IEEEtran}
 \usepackage[utf8]{inputenc}
-\usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
-\usepackage{authblk}
 
 % ============================================================================
 % MAIN CONFERENCE PAPER (full combined study)
@@ -16,12 +14,8 @@
 
 \title{\textbf{Closed-Loop Reveals What Open-Loop Hides: Generation-Coherence\\
 Collapse and Group-Wise Recovery in Quantized Autonomous-Driving VLAs}}
-\author[1]{Justin Williams}
-\author[1]{Kishor Datta Gupta}
-\author[1]{Roy George}
-\author[1]{Mrinmoy Sarkar}
-\affil[1]{Clark Atlanta University \quad \texttt{justinwilliamstech693@gmail.com}}
-\date{}
+\author{\IEEEauthorblockN{Justin Williams, Kishor Datta Gupta, Roy George, Mrinmoy Sarkar}
+\IEEEauthorblockA{Clark Atlanta University \\ \texttt{justinwilliamstech693@gmail.com}}}
 
 \begin{document}
 \maketitle
@@ -46,6 +40,9 @@ group-wise INT4 is the actionable, nearly-free recommendation. We are explicit a
 are two-scene with an out-of-distribution renderer (one scene is failed even by FP16), establishing
 the mechanism rather than a fleet-wide guarantee.
 \end{abstract}
+\begin{IEEEkeywords}
+vision--language--action models, autonomous driving, post-training quantization, group-wise INT4, closed-loop evaluation, generation coherence, edge deployment, Jetson Orin
+\end{IEEEkeywords}
 
 \section{Introduction}
 On-board inference motivates quantizing driving VLAs, and 4-bit weight quantization is generally
@@ -85,7 +82,7 @@ input (lidar2img, CAN-bus, ego-state prompt) from rendered frames each step. We 
 
 \section{Results}
 \subsection{Open-loop is blind}
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{Open-loop nuScenes-mini ($n{=}162$). L2 in meters (ST-P3 protocol).}
 \begin{tabular}{lcc}
 \toprule
@@ -98,7 +95,7 @@ INT2 & 6.45 & 0\% \\
 FP16, ego-state+history zeroed & \textbf{6.38} ($19\times$) & 100\% \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 INT4 is lossless; the $19\times$ ego-ablation shows why the metric cannot reflect the perception/
 planning pathway or its quantization.
 
@@ -111,7 +108,7 @@ $0.88$\,m at 3\,s. Yet the \emph{per-sample} W4 trajectories already differ from
 blindness is thus a property of the metric, not the hardware: it persists on the deployment target.
 
 \subsection{Closed-loop generation coherence}
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{NeuroNCAP closed-loop generation coherence (well-formed predicted-frame rate),
 \emph{real-camera} NeuRAD rendering, 14 scenes / 16 scenario instances, 10 paired seeds each.
 Per-scenario behaviour summarized; full per-scene table in the appendix/release.}
@@ -124,7 +121,7 @@ INT4 per-channel  & \textbf{3.7\%}  & collapses ($\le 15\%$) on 15/16 \\
 INT4 group-128    & \textbf{73.5\%} & $\ge 85\%$ of FP16 on 13/16 \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 Across all 16 scenario instances per-channel INT4 collapses generation (mean $3.7\%$ well-formed,
 $\le 15\%$ on 15/16) while group-wise INT4 recovers most of FP16's coherence (mean $73.5\%$ vs
 $76.0\%$, $\ge 85\%$ of FP16 on 13/16). The \emph{same} per-channel INT4 is lossless in-distribution
@@ -142,7 +139,7 @@ states drift; the per-channel coarsened grid then tips greedy decoding into malf
 text, whereas the group-wise grid preserves coherence---at a cost of $16/128=0.125$ bits/weight.
 
 \subsection{Memory benchmarks (toward edge)}
-\begin{table}[h]\centering
+\begin{table*}[t]\centering
 \caption{Backbone weight footprint and overhead (357.8\,M Linear params); effective bits include
 per-group FP16 scales.}
 \begin{tabular}{lcc}
@@ -154,7 +151,7 @@ INT4 per-channel & 4.06 & $\approx 0.25$\,GB \\
 INT4 group-128 & 4.125 & $\approx 0.26$\,GB \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 The robust recipe (group-wise INT4) is $\approx 0.26$\,GB; the full inference node fits in
 $3$--$5$\,GB. Perception (FP32, custom CUDA ops) dominates wall-clock, so the quantization win is
 robustness, not latency; the edge bottleneck is perception, not the planner (see companion systems
