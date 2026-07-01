@@ -311,6 +311,38 @@ and no CPU path for the custom ops, so perception must be replaced, not ported, 
 planner is borderline-feasible via llama.cpp ($\sim$seconds/plan, estimated). Edge effort should
 target perception; the planner is a solved sub-problem.
 
+\paragraph{On-device measurement (Jetson AGX Orin 64\,GB).} We ran the planner on a real
+NVIDIA Jetson AGX Orin Developer Kit (64\,GB, JetPack~6 / L4T~R36.4.7, CUDA capability~8.7,
+PyTorch~2.8), loading the actual OpenDriveVLA-0.5B Qwen2.5 decoder weights (291/291 tensors) and
+decoding $60$ trajectory tokens from a $1024$-token context (eager attention, default power mode,
+median of $30$ runs). Because our quantizer is fake-quant (dequantized to FP16, no packed-INT4
+GEMM in this build), latency and runtime memory are identical across precisions---confirming that
+the deployable win is the \emph{static weight footprint}, not speed, until a packed kernel is added.
+\begin{table}[h]\centering
+\caption{\textbf{Measured on Jetson AGX Orin 64\,GB} (JetPack 6, torch 2.8): OpenDriveVLA-0.5B
+planner, 1024-token context $\to$ 60 generated tokens, median of 30 runs. Packed-weight column is
+the true footprint if stored as packed INT$b$ + FP16 group scales.}
+\label{tab:orin}
+\begin{tabular}{lcccc}
+\toprule
+Config & median latency & throughput & runtime peak & packed weights \\
+\midrule
+FP16             & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & $0.716$\,GB \\
+INT8 group-128   & $4.01$\,s & $15.0$ tok/s & $2.88$\,GB & $0.363$\,GB \\
+INT4 group-128   & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & \textbf{$0.185$\,GB} \\
+INT4 per-channel & $4.02$\,s & $14.9$ tok/s & $2.88$\,GB & $0.179$\,GB \\
+\bottomrule
+\end{tabular}
+\end{table}
+The planner loads in $13.6$\,s and runs in under $3$\,GB on Orin---trivial for a 64\,GB board.
+Group-wise INT4 shrinks the stored planner $3.9\times$ ($0.716\to 0.185$\,GB) for $\approx 0.1$
+extra bits/weight over per-channel. Latency is flat across precisions (fake-quant); the
+$\sim$15\,tok/s eager rate (clocks unpinned) is a conservative planner-only figure and excludes
+perception. Realizing the memory \emph{and} a speedup on-device requires a packed-INT4 kernel
+(e.g.\ Marlin/AWQ-style) plus a TensorRT path---left as deployment engineering. This measured
+row supersedes the earlier device-class estimates and confirms the ``planner is free, perception
+is the wall'' conclusion directly on the target hardware.
+
 \section{Discussion}
 The study composes into a single message: open-loop L2 hides quantization damage because it is
 ego-extrapolation; closed-loop reveals it because perception and planning are on the critical path;

@@ -1,17 +1,19 @@
 # Papers
 
-Five manuscripts from the OpenDriveVLA quantization study. All share four authors — Justin Williams,
-Kishor Datta Gupta, Roy George, Mrinmoy Sarkar (Clark Atlanta University) — and **unpublished draft**
-status. Each `.tex` has a matching `*.README.md` with its thesis, target venue, key numbers, and
-build notes.
+Three manuscripts from the OpenDriveVLA quantization study, each aimed at a target venue. All share
+four authors — Justin Williams, Kishor Datta Gupta, Roy George, Mrinmoy Sarkar (Clark Atlanta
+University) — and **unpublished draft** status.
 
-| File | Venue | One-line thesis |
+| File | Target venue | One-line thesis |
 |------|-------|-----------------|
-| `workshop1_openloop_blind.tex` | Workshop | Open-loop nuScenes L2 is ~ego-extrapolation (19× ablation), so "INT4 is lossless" is a metric artifact. |
-| `workshop2_granularity.tex` | Workshop | Scale **granularity**, not bit-width, decides whether quantized generation survives domain shift. |
-| `workshop3_edge_memory.tex` | Workshop | The planner is free for the edge; **perception** is the memory/latency wall. |
-| `conference_closedloop_reveals.tex` | Main conference | Open-loop hides quantization damage; closed-loop reveals a granularity collapse with a near-free fix. |
-| `journal_comprehensive.tex` | Journal | The full study: blindness + collapse + granularity fix + edge memory, with threats-to-validity. |
+| `workshop1_openloop_blind.tex` | **CoRL 2026** | Open-loop nuScenes L2 is ~ego-extrapolation (19× ablation), so "INT4 is lossless" is a metric artifact; certify closed-loop. |
+| `workshop2_granularity.tex` | **IROS 2026** | Scale **granularity**, not bit-width, decides whether quantized generation survives domain shift. |
+| `journal_comprehensive.tex` | **NeurIPS 2026** | The full study: blindness + collapse + granularity fix + edge memory (incl. measured Jetson Orin), with threats-to-validity. |
+
+> **Consolidation note:** `conference_closedloop_reveals.tex` (closed-loop reveal) and
+> `workshop3_edge_memory.tex` (edge memory) were merged into `journal_comprehensive.tex`, which is a
+> superset — the closed-loop collapse/recovery results and the measured on-device Jetson AGX Orin
+> table now live there.
 
 ## Headline numbers (real-camera NeuroNCAP, 14 scenes / 16 scenario instances, 10 seeds each)
 
