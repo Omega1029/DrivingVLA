@@ -45,6 +45,8 @@ def main():
     ap.add_argument("--bits", type=int, default=0)
     ap.add_argument("--group", type=int, default=0)
     ap.add_argument("--mode", default="rtn_sym")
+    ap.add_argument("--a-bits", type=int, default=0, help="activation fake-quant bits (0=off)")
+    ap.add_argument("--rot", default="", help="rotation kind: dct|hadamard|random_orthogonal|none")
     ap.add_argument("--max-new", type=int, default=512)
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--dtype", default="float16")
@@ -57,8 +59,16 @@ def main():
     tok = AutoTokenizer.from_pretrained(args.ckpt, use_fast=True)
 
     model, nload = load_planner(args.ckpt, dtype, dev)
-    apply_fakequant(model, args.bits, args.group)
-    print(f"[replay] {args.bits}b g{args.group} | loaded {nload} decoder tensors | device {dev}")
+    if args.rot or args.a_bits:
+        # rotation / activation-quant path (module wrapping); handles W too
+        from inference.rotquant import apply_rotated
+        apply_rotated(model, w_bits=args.bits or 16, a_bits=args.a_bits or 16,
+                      kind=args.rot or "none", group=args.group)
+        print(f"[replay] rot={args.rot or 'none'} W{args.bits or 16}A{args.a_bits or 16} "
+              f"g{args.group} | loaded {nload} tensors | {dev}")
+    else:
+        apply_fakequant(model, args.bits, args.group)
+        print(f"[replay] {args.bits}b g{args.group} | loaded {nload} decoder tensors | device {dev}")
 
     files = sorted(glob.glob(os.path.join(args.embeds_dir, "*.pt")))
     t0 = time.time()
