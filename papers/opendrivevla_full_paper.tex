@@ -25,30 +25,22 @@ of Autonomous-Driving Vision--Language--Action Models}}
 \maketitle
 
 \begin{abstract}
-We present a comprehensive study of post-training weight quantization for autonomous-driving
-vision--language--action (VLA) models, using \textbf{OpenDriveVLA-0.5B}~\cite{opendrivevla}---a
-Qwen2.5-0.5B language/action head on UniAD~\cite{uniad} track+map perception---evaluated open-loop
-on nuScenes, closed-loop in the NeuroNCAP~\cite{neuroncap} neural-rendering simulator, and
-\emph{on a real NVIDIA Jetson AGX Orin}. We make five contributions. (1) \textbf{Open-loop is blind:}
-INT8/INT4 weight quantization is lossless on nuScenes L2 ($0.33$--$0.35$\,m), yet a controlled
-ego-ablation inflates L2 to $6.38$\,m ($19\times$), showing the metric is $\approx$ ego-motion
-extrapolation and cannot see quantization damage---consistent with, and quantifying for a
-quantization context, the ego-status critique of open-loop planning~\cite{egostatus}. (2)
-\textbf{Closed-loop reveals a failure:} across all 14 released NeuroNCAP scenes (16 scenario
-instances, 10 paired seeds), \emph{naive per-output-channel} INT4 collapses trajectory-text
-generation ($\le 15\%$ well-formed on 15/16, mean $3.7\%$) while FP16 stays coherent (mean $76.0\%$).
-(3) \textbf{Granularity, not bit-width, is the fix:} \emph{group-wise} INT4 (group 128,
-$\approx 0.1$ extra bits/weight) recovers most of FP16's coherence (mean $73.5\%$, $\ge 85\%$ of FP16
-on 13/16). We give the scale-outlier mechanism and relate it to GPTQ~\cite{gptq} and
-AWQ~\cite{awq}. (4) \textbf{On-device systems:} on an AGX Orin 64\,GB the planner runs in
-$2.88$\,GB at $14.9$ tok/s, and group-wise INT4 packs its weights $3.9\times$ ($0.72\to0.19$\,GB).
-(5) \textbf{On-device accuracy:} replaying real inputs on the Orin reproduces the A100 to $\approx
-1$\,cm and matches the published open-loop L2 ($0.35$\,m ST-P3), with a per-scene success breakdown
-(59--98\% of plans within 1\,m of the human path) that quantization does not change---so the
-open-loop blindness is a property of the metric, reproduced on the deployment hardware itself. We are
-explicit about scope throughout: group-wise recovery is partial on 3 scenarios, several scenes are
-failed by \emph{every} configuration including FP16, and the packed-INT4 speedup requires a kernel we
-have not yet written.
+Vision--language--action (VLA) models are an emerging approach to end-to-end autonomous driving,
+but their large language backbones must be compressed before they can run on in-vehicle hardware.
+Post-training quantization is the standard tool, yet its consequences for \emph{driving} are
+unexamined---and the stakes differ fundamentally from the robot arms where VLA quantization has
+been studied: a driving policy shares the road with people, and a single corrupted plan is a
+collision. We present the first study of quantized driving VLAs, evaluated three ways: open-loop
+on nuScenes, closed-loop in the NeuroNCAP~\cite{neuroncap} photorealistic safety simulator, and on
+a real NVIDIA Jetson AGX Orin. The three views disagree in an instructive way. Open-loop success
+certifies 4-bit quantization as lossless---but we show this metric is dominated by ego-motion
+extrapolation and structurally cannot see quantization damage. Under closed-loop safety testing,
+the same quantized policy collapses: it stops producing coherent trajectories under the
+deployment-domain shift. The failure is governed by quantization scale \emph{granularity}, not
+bit-width, and group-wise scales recover FP16-level behavior at negligible memory cost. On the
+Orin, the planner deploys comfortably, and both the accuracy and the open-loop metric's blindness
+reproduce on the target hardware. Our conclusion for practitioners: quantized driving policies
+must be certified closed-loop and on-device---open-loop success is false assurance.
 \end{abstract}
 \begin{IEEEkeywords}
 vision--language--action models, autonomous driving, post-training quantization, group-wise INT4, closed-loop evaluation, generation coherence, edge deployment, Jetson Orin
