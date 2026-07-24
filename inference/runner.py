@@ -106,10 +106,29 @@ class OpenDriveVLARunner:
                              group=int(__import__("os").environ.get("ODV_WQUANT_GROUP", "0")),
                              mode=__import__("os").environ.get("ODV_WQUANT_MODE", "rtn_sym"))
 
-    def apply_quant(self, bits: int, group: int = 0, mode: str = "rtn_sym") -> dict:
-        """Re-quantize the backbone in-place from the FP snapshot. Returns a summary dict."""
-        summary = self.qstate.apply(bits=bits, group=group, mode=mode)
-        self.quant_cfg = {"mode": mode, "bits": bits, "group": group}
+    def apply_quant(self, bits: int, group: int = 0, mode: str = "rtn_sym",
+                    a_bits: int = 0, rot: str = "") -> dict:
+        """Re-quantize the backbone in-place from the FP snapshot. Returns a summary dict.
+
+        Two paths:
+        - weight-only (default): QuantState in-place RTN/AWQ on the original Linear weights.
+        - rotation / activation-quant (a_bits or rot set): module-wrapping via rotquant
+          (y = quant_act(x Q^T) @ quant_w(W Q^T)^T). Always restores FP + unwraps first,
+          so paths compose cleanly across successive /quantize calls.
+        """
+        from inference.rotquant import apply_rotated, remove_rotated
+        # Always return to a clean FP, unwrapped state first.
+        n_unwrapped = remove_rotated(self.model)
+        self.qstate.restore_fp()
+        if a_bits or rot:
+            summary = apply_rotated(self.model, w_bits=bits or 16, a_bits=a_bits or 16,
+                                    kind=rot or "none", group=group)
+            summary["unwrapped_prev"] = n_unwrapped
+            self.quant_cfg = {"mode": f"rot_{rot or 'none'}", "bits": bits,
+                              "group": group, "a_bits": a_bits}
+        else:
+            summary = self.qstate.apply(bits=bits, group=group, mode=mode)
+            self.quant_cfg = {"mode": mode, "bits": bits, "group": group}
         print(f">>> apply_quant: {summary}")
         return summary
 

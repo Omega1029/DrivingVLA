@@ -66,6 +66,12 @@ def _get_runner() -> OpenDriveVLARunner:
             device=os.environ.get("ODV_DEVICE", "cuda:0"),
             autocast_dtype=os.environ.get("ODV_AUTOCAST", "float16"),
         )
+        # Auto-load calibrated AWQ scales so mode="awq" works on a fresh node
+        # (scales were calibrated once on rendered-domain activations; see run_awq.sh).
+        awq_path = os.environ.get("ODV_AWQ_SCALES", "logs/awq_scales.pt")
+        if os.path.exists(awq_path):
+            _runner.load_awq_scales(awq_path)
+            print(f">>> loaded AWQ scales from {awq_path}")
     return _runner
 
 
@@ -91,12 +97,16 @@ class QuantRequest(BaseModel):
     bits: int
     group: int = 0
     mode: str = "rtn_sym"   # rtn_sym | rtn_asym | awq | fp16
+    a_bits: int = 0         # activation fake-quant bits (0 = off)
+    rot: str = ""           # rotation kind: dct | hadamard | random_orthogonal | none | ""
 
 
 @app.post("/quantize")
 async def quantize(req: QuantRequest) -> dict:
-    """Re-quantize the backbone in-place from the FP snapshot (sweep techniques without reload)."""
-    return _get_runner().apply_quant(bits=req.bits, group=req.group, mode=req.mode)
+    """Re-quantize the backbone in-place from the FP snapshot (sweep techniques without reload).
+    If a_bits or rot is set, uses the module-wrapping rotation/activation path (rotquant)."""
+    return _get_runner().apply_quant(bits=req.bits, group=req.group, mode=req.mode,
+                                     a_bits=req.a_bits, rot=req.rot)
 
 
 @app.get("/quant_cfg")
