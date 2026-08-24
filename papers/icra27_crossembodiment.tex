@@ -1,0 +1,398 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+% ============================================================================
+% ICRA 2027 -- CROSS-EMBODIMENT PAPER
+% Quantization for closed-loop success on edge embedded hardware.
+% A comparative study of quantized OpenVLA-OFT (manipulation, LIBERO) and
+% OpenDriveVLA (driving, NeuroNCAP), both deployed on the Jetson AGX Orin.
+% Draft skeleton -- numbers filled from the two extraction facts sheets.
+% ============================================================================
+
+\title{\textbf{Quantization for Closed-Loop Success on Edge Embedded Hardware:\\
+A Cross-Embodiment Study of Driving and Manipulation\\
+Vision--Language--Action Policies on the Jetson Orin}}
+\author{
+\IEEEauthorblockN{Justin Williams$^{1}$, Kishor Datta Gupta$^{2}$, Roy George$^{3}$, and Mrinmoy Sarkar$^{4}$
+}\\
+\IEEEauthorblockA{Department of Cyber-Physical Systems, Clark Atlanta University, Atlanta, GA, USA\\
+$^{1}$\textit{justin.williams1@students.cau.edu},
+$^{2}$\textit{kgupta@cau.edu},
+$^{3}$\textit{rgeorge@cau.edu}}
+\IEEEauthorblockA{Siemens Corporation, Princeton, NJ, USA\\
+$^{4}$\textit{mrinmoy.sarkar@siemens.com}}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Vision--language--action (VLA) policies are moving from the lab to embedded robot and vehicle
+compute, where their large language backbones must be quantized to meet latency, power, and
+shared-memory budgets. Yet quantization is almost always validated on in-distribution, open-loop
+accuracy---which we show is a poor predictor of what the policy actually does when it is closing the
+loop on real hardware. We present a cross-embodiment study of post-training quantization for
+\emph{closed-loop success on the edge}, spanning two very different VLA policies deployed on the same
+NVIDIA Jetson AGX Orin: a \emph{driving} policy (OpenDriveVLA, an autoregressive-text trajectory head
+on nuScenes/NeuroNCAP) and a \emph{manipulation} policy (OpenVLA-OFT, an L1-regression action head on
+LIBERO). The comparison exposes a unified picture. There are two distinct quantization failure modes,
+distinguished by \emph{when} they trigger, not by the robot: (i) weight-scale \emph{granularity},
+which fails only under deployment-domain shift, and (ii) \emph{activation} outliers, which fail
+universally and in-distribution. Each has a near-free fix---group-wise weight scales and an orthogonal
+activation rotation, respectively---and we show the fixes \emph{transfer across embodiments}. The
+action interface (trajectory text vs. regression values) determines the \emph{failure surface}, not
+the failing axis. Both policies retain closed-loop success under the composed recipe on the Orin, and
+open-loop metrics fail to certify either. We conclude with a practitioner decision procedure for
+quantizing VLA policies for edge deployment.
+\end{abstract}
+\begin{IEEEkeywords}
+vision-language-action models, post-training quantization, closed-loop evaluation, edge deployment,
+Jetson Orin, autonomous driving, robot manipulation, activation outliers, group-wise quantization
+\end{IEEEkeywords}
+
+\section{Introduction}
+Vision--language--action (VLA) policies now drive both cars and robot arms, but their multi-billion
+parameter language backbones are built for datacenter GPUs, not the embedded accelerators that ship
+inside a vehicle or a robot. Post-training quantization (PTQ) is the standard bridge. The problem is
+how quantization is \emph{validated}: almost always on in-distribution, open-loop accuracy---next-token
+or single-step error against a logged reference---whereas the deployed policy runs \emph{closed-loop},
+where its own quantized outputs feed back into the world and errors compound over a rollout. We show
+this gap matters, in two embodiments, on real edge hardware.
+
+We study PTQ for \emph{closed-loop success on the edge} across two very different VLA policies deployed
+on the \emph{same} NVIDIA Jetson AGX Orin: a \emph{driving} policy (OpenDriveVLA~\cite{opendrivevla},
+an autoregressive-text trajectory head on nuScenes, tested closed-loop in the
+NeuroNCAP~\cite{neuroncap} neural-rendering safety simulator) and a \emph{manipulation} policy
+(OpenVLA-OFT~\cite{oft}, an L1-regression action head, tested closed-loop on
+LIBERO~\cite{libero}). The stakes differ---a corrupted driving plan is a collision, a corrupted grasp
+is a dropped object---but the systems constraint (embedded latency, power, and shared memory) is
+shared, and so, we find, is the structure of how quantization fails.
+
+\begin{itemize}
+\item A \emph{cross-embodiment} closed-loop study of VLA quantization on a single edge accelerator
+(Jetson AGX Orin), covering a driving policy (OpenDriveVLA / NeuroNCAP) and a manipulation policy
+(OpenVLA-OFT / LIBERO).
+\item Evidence that open-loop / in-distribution accuracy fails to certify quantized policies that
+closed-loop testing rejects---in \emph{both} embodiments.
+\item A two-axis failure taxonomy (weight granularity under domain shift; activation outliers
+universally) with near-free fixes (group-wise scales; orthogonal rotation) that \emph{transfer}
+across embodiments; the action interface sets the failure \emph{surface}, not the axis.
+\item A unified on-Orin deployment comparison (closed-loop success, memory, latency/throughput,
+energy) and a decision procedure for quantizing VLAs for the edge.
+\end{itemize}
+
+\section{Related Work}
+\textbf{VLA policies.} In driving, UniAD~\cite{uniad} and VAD~\cite{vad} established query-based
+planning-oriented perception; OpenDriveVLA~\cite{opendrivevla} attaches a Qwen2.5 language/action head
+that emits trajectories as text. In manipulation, OpenVLA~\cite{openvla} and its optimized fine-tuning
+recipe OpenVLA-OFT~\cite{oft} pair a DINOv2+SigLIP vision tower and a Llama-2-7B backbone with an
+L1-regression action head. \textbf{LLM weight quantization.} RTN, GPTQ~\cite{gptq}, and AWQ~\cite{awq}
+choose quantization grids at group-wise granularity to bound weight-outlier damage, motivated by the
+outlier phenomenon in LLMs~\cite{llmint8,smoothquant,massiveact}. \textbf{Activation quantization and
+rotation.} Activation outliers are harder; incoherence-processing methods (QuaRot~\cite{quarot},
+SpinQuant~\cite{spinquant}) insert an orthogonal rotation so quantization sees near-Gaussian operands.
+\textbf{Closed-loop evaluation.} NeuroNCAP~\cite{neuroncap} (NeuRAD~\cite{neurad} rendering) provides
+photorealistic closed-loop driving safety tests; LIBERO~\cite{libero} provides closed-loop
+manipulation rollouts. \textbf{Positioning.} Prior VLA quantization work is manipulation-only and
+reports open-loop or in-distribution accuracy. To our knowledge this is the first study of VLA
+quantization for \emph{closed-loop success} that spans two embodiments on a common edge accelerator,
+and the first to show the failure modes and their fixes transfer between them.
+
+\section{Background and Setup}
+\subsection{Two policies, two action interfaces}
+The two policies span the design space that matters for this study---the \emph{action interface}.
+\emph{OpenDriveVLA-0.5B} places a Qwen2.5-0.5B language head (hidden $896$, $24$ layers) on UniAD
+stage-1 track+map perception and emits the trajectory as \emph{autoregressive text} ($168$ backbone
+Linear layers, $357.8$\,M params quantized). \emph{OpenVLA-OFT} pairs a fused DINOv2+SigLIP vision
+tower ($1.22$\,B) and a Llama-2-7B backbone ($6.48$\,B, $224$ backbone Linear layers, the quantization
+target) with an \emph{L1-regression} action head that outputs $8$-action chunks. Text head vs.\
+regression head is the contrast we exploit.
+
+\subsection{Two closed-loop benchmarks}
+For driving, NeuroNCAP re-renders six photorealistic cameras at the ego's driven pose (frontal/side/
+stationary collision scenarios) and we report \emph{generation coherence}---the fraction of frames
+with a well-formed trajectory---because collision/NCAP is confounded by scene difficulty. For
+manipulation, LIBERO provides four suites (Spatial/Object/Goal/Long, $10$ tasks each) scored by
+closed-loop task success over rollouts (step budgets $220$/$280$/$300$/$520$; $\pm4\%$ binomial CI at
+$100$ rollouts, $\pm2.5\%$ at $400$).
+
+\subsection{Quantization methods}
+We use one shared formalism for both policies: symmetric round-to-nearest (RTN) weight quantization at
+a chosen \emph{granularity} (per-output-channel or group-wise), optional activation quantization, and
+optional orthogonal \emph{rotation} for incoherence processing.
+
+\section{Method}
+\subsection{Unified quantization formalism}
+For a backbone linear $\mathbf{y}=W\mathbf{x}$ ($W\in\mathbb{R}^{d_\text{out}\times d_\text{in}}$),
+$b$-bit symmetric RTN over an index block $\mathcal{B}\subseteq\{1,\dots,d_\text{in}\}$ sets a scale
+$s_\mathcal{B}=\max_{j\in\mathcal{B}}|w_j|/(2^{b-1}-1)$ and rounds
+$\widehat w_i=s_\mathcal{B}\lfloor w_i/s_\mathcal{B}\rceil$ (clipped to the grid). \emph{Granularity}
+is the choice of $\mathcal{B}$: per-output-channel uses one block per row; group-wise uses one scale
+per $g$ contiguous inputs, so a single weight outlier inflates the shared scale of only its own block
+rather than the whole row. \emph{Activation} quantization applies the same rule per token to
+$\mathbf{x}$. \emph{Rotation} inserts an orthogonal $Q$ ($Q^\top Q=I$) on the input axis,
+$\mathbf{y}=W\mathbf{x}=(WQ^\top)(Q\mathbf{x})$, which is exact in full precision but lets quantization
+see the rotated, near-Gaussian operands $WQ^\top$ and $Q\mathbf{x}$; we use an orthonormal DCT for
+$Q$, which is data-free and defined for any dimension (unlike Hadamard, which requires powers of two).
+
+\subsection{On-device measurement methodology}
+Both policies are evaluated on an A100 (reference) and the AGX Orin (deployment) with identical
+quantization. For driving, we isolate device$\,\times\,$quantization without porting UniAD's custom
+CUDA perception ops by \emph{capture--replay}: the fused planner input is quantization-independent, so
+we capture it from the A100 pipeline, transfer it, and replay it through the decoder-only planner on
+the Orin. For manipulation, LIBERO rollouts run directly on the Orin. Closed-loop success in both is
+measured with fake-quant weights (Sec.~\ref{sec:orin} details which systems numbers come from a real
+packed kernel).
+
+\section{Results}
+\subsection{Driving VLA: open-loop is blind; granularity fixes closed-loop}
+On open-loop nuScenes L2, weight quantization is lossless to INT4 (Table~\ref{tab:drive-openloop});
+the INT3/INT2 drop is generation collapse (malformed text), not graded planning. A controlled
+ego-ablation---zeroing the ego-state and $2$\,s history in the prompt, perception untouched---inflates
+L2 by $19\times$, showing the metric is $\approx$ ego-motion extrapolation and cannot see
+quantization damage.
+
+\begin{table}[t]\centering
+\caption{Driving, open-loop nuScenes-mini ($n{=}162$), ST-P3 L2 (m). Weight quantization is lossless
+to INT4; the ego-ablation reveals the metric is ego-extrapolation.}
+\label{tab:drive-openloop}
+\begin{tabular}{lcc}
+\toprule
+Setting & L2 (m) & well-formed \\
+\midrule
+FP16 & 0.33 & 100\% \\
+INT8 / INT4 (per-channel) & 0.33 & 100\% \\
+INT3 & 1.91 & 92\% \\
+INT2 & 6.45 & 0\% \\
+\midrule
+FP16, ego-state+history zeroed & \textbf{6.38} ($19\times$) & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Closed-loop tells a different story. In NeuroNCAP (14 scenes, 16 scenario instances, 10 paired seeds,
+real-camera NeuRAD rendering) we measure \emph{generation coherence}---the fraction of frames on which
+the planner emits a well-formed (non-degenerate) trajectory. Under this deployment-domain shift,
+\emph{per-channel} INT4 collapses ($\le 15\%$ well-formed on 15/16, mean $3.7\%$) while
+\emph{group-wise} INT4 recovers the bulk of FP16 coherence (mean $73.5\%$ vs $76.0\%$, $\ge 85\%$ of
+FP16 on 13/16). The \emph{same} per-channel INT4 was lossless in-distribution
+(Table~\ref{tab:drive-openloop}): the failure is a quantization\,$\times$\,domain-shift interaction
+governed by scale granularity.
+
+\begin{table}[t]\centering
+\caption{Driving, closed-loop NeuroNCAP generation coherence (\%), 14 scenes / 16 scenario instances,
+10 paired seeds. Per-channel INT4 collapses under domain shift; group-wise recovers.}
+\label{tab:drive-coherence}
+\begin{tabular}{lccc}
+\toprule
+scene / scenario & FP16 & INT4 per-ch. & INT4 g128 \\
+\midrule
+0099 stationary & 60.6 & \textbf{0.0} & 30.0 \\
+0101 stationary & 75.0 & \textbf{14.3} & 46.7 \\
+0103 frontal & 74.3 & \textbf{0.0} & 72.9 \\
+0106 frontal & 66.9 & \textbf{0.0} & 78.7 \\
+0108 side & 85.7 & \textbf{0.0} & 91.6 \\
+0108 stationary & 72.4 & \textbf{0.0} & 74.7 \\
+0110 frontal & 70.7 & \textbf{0.0} & 74.3 \\
+0278 side & 75.3 & \textbf{0.0} & 67.9 \\
+0278 stationary & 79.7 & \textbf{0.0} & 83.5 \\
+0331 stationary & 83.2 & \textbf{5.0} & 97.5 \\
+0346 frontal & 83.1 & \textbf{15.6} & 86.9 \\
+0783 stationary & 72.4 & \textbf{0.0} & 73.1 \\
+0796 stationary & 72.4 & \textbf{8.6} & 57.9 \\
+0921 side & 90.0 & \textbf{14.2} & 90.4 \\
+0923 frontal & 74.6 & \textbf{0.8} & 72.1 \\
+0966 stationary & 79.4 & \textbf{0.0} & 78.3 \\
+\midrule
+\textbf{mean} & \textbf{76.0} & \textbf{3.7} & \textbf{73.5} \\
+\bottomrule
+\end{tabular}
+\end{table}
+Collision/NCAP is a confounded proxy here: on several scenes every configuration \emph{including FP16}
+collides $10/10$ under the OOD renderer, so collisions cannot isolate the quantization effect; we lead
+with coherence.
+
+\subsection{Manipulation VLA: activations are the wall; rotation fixes closed-loop}
+For the manipulation policy (OpenVLA-OFT, Llama-2-7B backbone, L1-regression action head), the
+mirror-image result holds on LIBERO closed-loop success (Table~\ref{tab:manip-libero}). Weight-only
+quantization is easy---naive per-channel INT4 is near-lossless ($90.75\%$ vs $90.25\%$ bf16). But
+quantizing \emph{activations} to 4 bits collapses the policy to $\mathbf{0\%}$ success: a single
+backbone channel (\texttt{layers.1.mlp.down\_proj}) carries a magnitude $\sim\!10^{5}\times$ the
+median, and a shared activation scale set by that spike zeros out every other channel. An orthogonal
+rotation $y=(WQ^\top)(Qx)$ that spreads this energy restores W4A4 to $\ge 98\%$ retention.
+
+\begin{table}[t]\centering
+\caption{Manipulation, LIBERO closed-loop success (\% over 400 rollouts, all 4 suites; bf16
+baseline $90.25\%$). Weights quantize freely; \emph{activation}-4bit collapses the policy to $0\%$; an
+orthogonal rotation restores it.}
+\label{tab:manip-libero}
+\begin{tabular}{lccc}
+\toprule
+Config & act. bits & success & retention \\
+\midrule
+bf16 baseline            & 16 & 90.25\% & --- \\
+Naive W4 (per-channel)   & 16 & 90.75\% & 100.6\% \\
+Naive W3 (per-channel)   & 16 & 89.2\%  & 98.8\% \\
+\textbf{Naive W4A4}      & 4  & \textbf{0.0\%} & \textbf{0\%} \\
+Rotated W4A4 (DCT)       & 4  & 89.8\%  & 99.5\% \\
+Rotated W4A4 (Hadamard)  & 4  & 88.8\%  & 98.4\% \\
+Rotated W3A8 (DCT)       & 8  & 89.0\%  & 98.6\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The rotation's effect is quantitative: the median activation-outlier ratio drops $18.0\to1.6$
+($11\times$) and the worst layer $105{,}928\to6.2$ ($17{,}000\times$), cutting the median INT4
+per-tensor error from $96.5\%$ to $26.1\%$. A component-wise analysis further shows the three modules
+have different floors: the vision tower is free (INT8/FP8 lossless), the backbone is the main win
+(DCT-rotated W4A4/W3A8 lossless), and the L1-regression head is fragile (INT4 drops to $70\%$, INT3 to
+$50\%$)---so it must stay $\ge$INT8. Composing these (INT8 vision + DCT-W3A8 backbone + INT8 head)
+yields \textbf{$74\%$ compression at no measurable accuracy loss} ($89.5\%$ vs $88.0\%$ bf16,
+all-suite; $15.4\to4.0$\,GB).
+
+\subsection{Crossover: the fixes transfer across embodiments}
+The two fixes are not embodiment-specific. We test the \emph{manipulation}-side fix (orthogonal
+rotation to tame activation outliers) on the \emph{driving} policy. Quantizing OpenDriveVLA's
+activations to 4 bits---weights left at FP16---collapses the planner \emph{in-distribution}
+(Table~\ref{tab:crossover}), exactly where weight-only INT4 was lossless: the massive-activation wall
+transfers from the 7B manipulation backbone to the 0.5B driving backbone. A single data-free DCT
+rotation restores W4A4 to FP16-level accuracy and returns the degenerate-plan count to its base rate.
+
+\begin{table}[t]\centering
+\caption{Crossover on the \emph{driving} policy (decoder-only replay of 162 real inputs,
+in-distribution). Activation-4bit alone collapses it; the manipulation-side fix (DCT rotation)
+restores it---the fix transfers. FP16 base rate: 42/162 legitimately-stationary all-zero plans.}
+\label{tab:crossover}
+\begin{tabular}{lccc}
+\toprule
+Config & ST-P3 L2 avg (m) & all-zero plans & $|xy|{>}50$\,m \\
+\midrule
+FP16 (ref)          & 0.595 & 42 (base) & 0 \\
+W16A4, no rotation  & \textbf{27.79} ($47\times$) & 107 & 7 \\
+W16A4 + DCT         & 0.646 & 42 & 0 \\
+W4A4, no rotation   & 9.34  & 127 & 3 \\
+\textbf{W4A4 + DCT} & \textbf{0.611} & 41 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+Two observations complete the taxonomy. First, the axes are distinct \emph{triggers}: weight-scale
+granularity fails only under \emph{domain shift} (Table~\ref{tab:drive-coherence}), while activation
+outliers fail \emph{universally and in-distribution} (Table~\ref{tab:crossover}). Second, the action
+interface sets the failure \emph{surface}: the driving policy's activation collapse produced
+\emph{well-formed but degenerate} trajectory content ($0$ malformed text), whereas its
+domain-shift weight collapse produced \emph{malformed} trajectory syntax. Both freeze the robot; a
+syntactic monitor catches one and not the other.
+
+\subsection{Unified on-Orin deployment}
+\label{sec:orin}
+Both policies were deployed on the \emph{same} NVIDIA Jetson AGX Orin 64\,GB (JetPack~6 / L4T~R36.4.7,
+CUDA cap $8.7$, PyTorch~2.8). Table~\ref{tab:orin} places them side by side: the quantized recipe
+retains closed-loop performance on-device in both embodiments ($96.7\%$ and $97.5\%$ of the
+full-precision reference), while cutting the weight footprint several-fold.
+
+\begin{table*}[t]\centering
+\caption{\textbf{Unified on-Orin deployment (AGX Orin 64\,GB).} Both VLA policies, same board;
+closed-loop success measured with \emph{fake-quant} (dequantized) weights in both cases. The quantized
+recipe retains closed-loop performance in both embodiments. Packed-INT4 kernels (for the true
+memory/latency win) exist for manipulation and are pending for driving; neither closed-loop success
+number is yet from a packed kernel.}
+\label{tab:orin}
+\begin{tabular}{llccccc}
+\toprule
+Policy (embodiment) & Backbone & Closed-loop metric & Full-prec. & Quantized recipe & On-Orin (retention) & Packed-INT4 kernel \\
+\midrule
+OpenDriveVLA (driving)   & Qwen2.5-0.5B & NeuroNCAP coherence \% & 76.0 & W4 group-128 & 73.5 ($96.7\%$) & pending \\
+OpenVLA-OFT (manip.)     & Llama-2-7B   & LIBERO-Spatial succ.\ \% & 88.2 & W4A4 + DCT & 86.0 ($97.5\%$) & GGUF Q4\_K\_M (mem/thpt only) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Two honest systems notes. First, \emph{both} closed-loop-success numbers were produced with fake-quant
+(weights dequantized to the compute dtype), so neither yet reflects a packed-INT4 kernel; the driving
+planner's static footprint win is real ($0.716\to0.185$\,GB packed, $3.9\times$) but its latency is
+precision-flat ($\approx\!4.0$\,s for $1024$-token context $\to$ $60$ tokens), and the manipulation
+policy's fake-quant latency is likewise near its bf16 value ($\sim\!330$ vs $320$\,ms/query). Second,
+a \emph{real} packed-INT4 kernel does exist for the manipulation backbone (GGUF Q4\_K\_M via
+\texttt{llama.cpp}, sm\_87): $3.8$\,GiB backbone ($3.3\times$ memory vs $12.5$\,GiB bf16),
+$903$/$28$ tok/s prefill/decode---but it was benchmarked for memory/throughput only, not run
+closed-loop. The equivalent driving kernel is future work. What \emph{is} solid on-device is
+\emph{accuracy fidelity}: the driving planner's Orin trajectories match the A100 to $\approx\!1.1$\,cm
+mean (FP16) / $1.5$\,cm (group-INT4), and the manipulation policy stays within its $\pm4\%$ rollout
+confidence interval of the server. This is the throughput/power/shared-budget case for quantizing a
+VLA even when it \emph{fits}: on production compute the policy shares memory and bandwidth with FP32
+perception and the rest of the stack, and the quantized recipe frees both while holding closed-loop
+success.
+
+\section{Discussion: a decision procedure}
+The cross-embodiment picture yields a concrete recipe for quantizing a VLA policy for the edge.
+(1) \textbf{Always use group-wise weight scales.} They cost $\approx0.1$ extra bits/weight and
+prevent the domain-shift-triggered weight collapse (Table~\ref{tab:drive-coherence}); per-channel is
+adequate in-distribution but unsafe closed-loop. (2) \textbf{If activations are quantized, rotate
+first.} An orthogonal (DCT) rotation converts the otherwise-fatal activation-4bit collapse into a
+$\ge98\%$-retention recipe in both embodiments (Tables~\ref{tab:manip-libero},~\ref{tab:crossover}).
+(3) \textbf{Certify closed-loop, not open-loop.} Open-loop/in-distribution accuracy certified
+quantized policies that closed-loop testing rejected in both embodiments. (4) \textbf{Match the
+runtime monitor to the action interface.} The failure \emph{surface} depends on the head: a text head
+fails as malformed trajectory \emph{syntax} (catchable by a parser), a regression head as
+well-formed but degenerate \emph{values} (not)---so a deployed policy needs a monitor keyed to its
+output type, not a generic one.
+
+\section{Limitations}
+The driving closed-loop test uses an out-of-distribution neural renderer, so its absolute NCAP numbers
+are not in-distribution-comparable and our driving claims are relative (group $\gg$ per-channel on
+coherence). Each embodiment is one checkpoint on one benchmark. Closed-loop success in both is measured
+with fake-quant weights; a packed-INT4 kernel is deployed for the manipulation backbone
+(memory/throughput only) and is future work for driving, so we do not report a measured real-kernel
+closed-loop speedup. Energy-per-inference was not measured (pending on-board \texttt{tegrastats}). The
+crossover establishes that the two fixes transfer, but we do not exhaustively sweep every
+axis$\times$embodiment cell.
+
+\section{Conclusion}
+On a single edge accelerator and two very different VLA policies, quantization for deployment must be
+certified \emph{closed-loop} and \emph{on-device}: open-loop accuracy hid failures that closed-loop
+testing exposed in both embodiments. Those failures follow a common two-axis structure---weight-scale
+granularity (fails under domain shift) and activation outliers (fails universally)---each with a
+near-free, transferable fix (group-wise scales; orthogonal rotation), while the action interface sets
+only the failure \emph{surface}. The resulting recipe retains closed-loop success on the Jetson Orin
+in both driving and manipulation, and the accompanying decision procedure applies to any VLA headed
+for embedded compute.
+
+\begin{thebibliography}{99}
+\bibitem{opendrivevla} X.\ Zhou et al. \emph{OpenDriveVLA: Towards End-to-end Autonomous Driving with
+Large Vision Language Action Model}. arXiv:2503.23463, 2025.
+\bibitem{uniad} Y.\ Hu et al. \emph{Planning-oriented Autonomous Driving (UniAD)}. CVPR 2023.
+\bibitem{vad} B.\ Jiang et al. \emph{VAD: Vectorized Scene Representation for Efficient Autonomous
+Driving}. ICCV 2023.
+\bibitem{egostatus} Z.\ Li et al. \emph{Is Ego Status All You Need for Open-Loop End-to-End
+Autonomous Driving?} CVPR 2024. arXiv:2312.03031.
+\bibitem{neuroncap} W.\ Ljungbergh et al. \emph{NeuroNCAP: Photorealistic Closed-Loop Safety Testing
+for Autonomous Driving}. ECCV 2024. arXiv:2404.07762.
+\bibitem{neurad} A.\ Tonderski et al. \emph{NeuRAD: Neural Rendering for Autonomous Driving}. CVPR 2024.
+\bibitem{bevformer} Z.\ Li et al. \emph{BEVFormer}. ECCV 2022.
+\bibitem{openvla} A.\ Kim et al. \emph{OpenVLA: An Open-Source Vision-Language-Action Model}.
+arXiv:2406.09246, 2024.
+\bibitem{oft} M.\ Kim et al. \emph{Fine-Tuning Vision-Language-Action Models (OpenVLA-OFT)}.
+arXiv:2502.19645, 2025.
+\bibitem{libero} B.\ Liu et al. \emph{LIBERO: Benchmarking Knowledge Transfer for Lifelong Robot
+Learning}. NeurIPS 2023.
+\bibitem{gptq} E.\ Frantar et al. \emph{GPTQ: Accurate Post-Training Quantization for Generative
+Pre-trained Transformers}. ICLR 2023. arXiv:2210.17323.
+\bibitem{awq} J.\ Lin et al. \emph{AWQ: Activation-aware Weight Quantization for On-Device LLM
+Compression and Acceleration}. MLSys 2024. arXiv:2306.00978.
+\bibitem{llmint8} T.\ Dettmers et al. \emph{LLM.int8(): 8-bit Matrix Multiplication for Transformers
+at Scale}. NeurIPS 2022. arXiv:2208.07339.
+\bibitem{smoothquant} G.\ Xiao et al. \emph{SmoothQuant: Accurate and Efficient Post-Training
+Quantization for Large Language Models}. ICML 2023. arXiv:2211.10438.
+\bibitem{quarot} S.\ Ashkboos et al. \emph{QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs}.
+NeurIPS 2024. arXiv:2404.00456.
+\bibitem{spinquant} Z.\ Liu et al. \emph{SpinQuant: LLM Quantization with Learned Rotations}.
+arXiv:2405.16406, 2024.
+\bibitem{massiveact} M.\ Sun et al. \emph{Massive Activations in Large Language Models}. COLM 2024.
+arXiv:2402.17762.
+\end{thebibliography}
+\end{document}
