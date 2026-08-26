@@ -1,29 +1,32 @@
-\documentclass[11pt]{article}
-\usepackage[margin=1in]{geometry}
-\usepackage{amsmath,amssymb,booktabs,graphicx,xcolor}
+\documentclass[conference]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
 \usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
-\usepackage{parskip}
 
 % ============================================================================
-% ICLR 2027 submission -- single column, 9 pages main text (refs/appendix free).
-% Swap this preamble for iclr2027_conference.sty before submitting; the body is
-% written to be style-agnostic. MUST be anonymised (no author block) and MUST
-% carry the mandatory AI-usage disclosure section.
-%
+% IEEEtran conference format (two-column).
 % Every number here is a real measurement. Provenance:
-%   corrected closed-loop  -> closed_loop_harness/run_sweep_clean.sh, output/remeasure_clean
+%   corrected closed-loop    -> closed_loop_harness/run_sweep_clean.sh, output/remeasure_clean
 %   contaminated closed-loop -> output/benchmark12 (archived, run 2026-06-29)
-%   activation crossover   -> icra27/e1 (decoder-only replay; never touches the renderer)
-%   manipulation           -> OpenVLA-OFT / LIBERO pipeline (separate harness)
+%   activation crossover     -> icra27/e1 (decoder-only replay; never touches the renderer)
+%   manipulation             -> OpenVLA-OFT / LIBERO pipeline (separate harness, NOT yet audited
+%                               for the same class of state-reuse bug -- see Limitations)
+%
+% Double-anonymous: the author block below must stay anonymised for submission.
 % ============================================================================
 
 \title{\textbf{A Phantom Collapse: Simulator State Contaminates\\
 Closed-Loop Evaluation of Quantized Driving Policies}}
-\author{}
-\date{}
+
+\author{\IEEEauthorblockN{Anonymous Submission}
+\IEEEauthorblockA{Paper ID: XXXX}}
 
 \begin{document}
 \maketitle
+
 
 \begin{abstract}
 Closed-loop simulation is increasingly treated as the trustworthy alternative to open-loop
@@ -48,6 +51,10 @@ is not automatically more trustworthy than open-loop evaluation, and a fixed enu
 against a stateful simulator is sufficient to fabricate a large, stable, statistically significant
 effect that does not exist.
 \end{abstract}
+\begin{IEEEkeywords}
+vision-language-action models, autonomous driving, post-training quantization, closed-loop
+evaluation, reproducibility, simulator state, NeuroNCAP, benchmarking
+\end{IEEEkeywords}
 
 \section{Introduction}
 Post-training quantization (PTQ) is the standard route to running VLA policies on embedded
@@ -119,7 +126,7 @@ background vehicles are placed in the roadway, so contaminated runs collide almo
 (stationary). Under contamination the ordering of scores follows the ordering of execution
 exactly. On a clean renderer all three configurations are perfect.
 
-\begin{table}[t]\centering
+\begin{table*}[t]\centering
 \caption{Scene 0099 stationary, $10$ seeds. Archived scores follow \emph{execution order};
 on a restored renderer the differences vanish.}
 \label{tab:position}
@@ -132,7 +139,7 @@ run position & config & archived & restored renderer \\
 3 (mutated twice) & group W4 g128 & $0.00$ & $\mathbf{5.00}$ \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 This also resolves an anomaly we had previously reported as a scientific finding: group-wise INT4
 scored \emph{worse} than naive INT4, despite finer scale granularity being strictly more
@@ -186,7 +193,7 @@ The corrected result should not be read as ``4-bit driving policies are safe.'' 
 decoder-only replay path that never contacts the renderer and is therefore untouched by
 Section~\ref{sec:mech}: $162$ captured planner inputs replayed through the planner.
 
-\begin{table}[t]\centering
+\begin{table*}[t]\centering
 \caption{Activation quantization on the driving policy (decoder-only replay of $162$ real inputs;
 renderer-independent). FP16 base rate is $42/162$ legitimately-stationary all-zero plans.}
 \label{tab:act}
@@ -201,7 +208,7 @@ W4A4, no rotation & $9.34$ & $127$ & $3$ \\
 \textbf{W4A4 + DCT} & $\mathbf{0.611}$ & $41$ & $0$ \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 Quantizing activations to $4$ bits with weights untouched inflates planning error $47\times$ and
 triples the rate of degenerate stay-put plans, in-distribution, where weight-only INT4 is
@@ -255,9 +262,9 @@ The restore-protocol harness, the aggregation and diagnostic scripts, the contam
 corrected result trees, and the analysis that identified the mechanism are released with the
 paper.
 
-\section*{Use of AI assistance}
-% ICLR 2027 requires this section; it does not count toward the page limit. Fill in per the
-% AI Policy for Authors before submission.
-\emph{To be completed per ICLR 2027 policy.}
+\section*{Acknowledgments}
+% ICRA requires any AI-generated content to be disclosed in the acknowledgments; ICLR instead
+% requires a dedicated (non-page-counted) AI-usage section. Complete per the target venue.
+\emph{Disclosure of AI assistance to be completed per target-venue policy.}
 
 \end{document}
