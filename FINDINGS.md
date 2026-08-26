@@ -1,3 +1,31 @@
+> # ⚠ CORRECTION (2026-08-26) — READ BEFORE THE REST OF THIS FILE
+>
+> **The closed-loop results below are invalid.** The NeuRAD render server is stateful:
+> `POST /update_actors` overwrites its actor set and `neuro_ncap/engine.py:79` reads that set
+> **once at engine init**. `run_benchmark_12.sh` / `parallel_benchmark.sh` launched one renderer
+> per *scene* and looped configs inside it in fixed order (`fp16`, `naive_w4`, `group_w4_g128`),
+> so **only the first config per scene saw a clean actor set**. Badness tracked run position, not
+> bit-width.
+>
+> Re-measured with a state-restore protocol (`closed_loop_harness/run_sweep_clean.sh`),
+> 16 scenario instances x 10 seeds, 95% bootstrap CI over instances:
+>
+> | config | corrected NCAP | previously reported |
+> |---|---|---|
+> | FP16 | 4.81 [4.62, 4.97] | 4.41 |
+> | W8 | 4.81 [4.58, 5.00] | 4.50 |
+> | naive W4 | **4.71 [4.38, 5.00]** | 2.62 |
+> | group W4 g128 | **4.86 [4.67, 4.98]** | 2.62 |
+>
+> Paired vs FP16: W8 -0.00 [-0.15,+0.17], naive W4 -0.10 [-0.33,+0.12], group W4 +0.05
+> [-0.06,+0.20] — **all indistinguishable from full precision**. Plain RTN W4 already matches W8.
+>
+> Consequently void: the 4-bit safety collapse, the "no 4-bit recipe survives" claim, the
+> granularity story, the coherence-vs-safety hierarchy, and the braking-onset mechanism.
+>
+> **Unaffected** (never touched the renderer): open-loop replay incl. the activation-quant/DCT
+> crossover, all Jetson Orin replay numbers, and the OpenVLA-OFT/LIBERO manipulation study.
+
 # OpenDriveVLA quantization study — consolidated findings
 
 Clean entry point. Full experiment log + every fix is in `RESULTS.md`; closed-loop build/plan is in
