@@ -1,0 +1,263 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,booktabs,graphicx,xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{parskip}
+
+% ============================================================================
+% ICLR 2027 submission -- single column, 9 pages main text (refs/appendix free).
+% Swap this preamble for iclr2027_conference.sty before submitting; the body is
+% written to be style-agnostic. MUST be anonymised (no author block) and MUST
+% carry the mandatory AI-usage disclosure section.
+%
+% Every number here is a real measurement. Provenance:
+%   corrected closed-loop  -> closed_loop_harness/run_sweep_clean.sh, output/remeasure_clean
+%   contaminated closed-loop -> output/benchmark12 (archived, run 2026-06-29)
+%   activation crossover   -> icra27/e1 (decoder-only replay; never touches the renderer)
+%   manipulation           -> OpenVLA-OFT / LIBERO pipeline (separate harness)
+% ============================================================================
+
+\title{\textbf{A Phantom Collapse: Simulator State Contaminates\\
+Closed-Loop Evaluation of Quantized Driving Policies}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Closed-loop simulation is increasingly treated as the trustworthy alternative to open-loop
+metrics for evaluating quantized vision--language--action (VLA) policies. We report a failure mode
+that undermines that assumption. In a photorealistic closed-loop driving benchmark
+(NeuroNCAP/NeuRAD), the render server is \emph{stateful}: an actor-update endpoint mutates the
+scene, and the evaluation engine reads the scene once at initialisation. A benchmark script that
+launches one renderer per scene and then loops quantization configurations inside it therefore
+gives only the \emph{first} configuration a clean scene. Because configurations are enumerated in
+a fixed order, the contamination is perfectly confounded with the treatment. In our own prior
+measurements this manufactured an apparent catastrophic 4-bit safety collapse---graded NCAP
+$4.41$ at FP16 against $2.62$ for every 4-bit recipe---that survived ten seeds, paired
+comparisons, bootstrap confidence intervals, and a full paper revision. It was an artifact.
+Re-measured with a state-restore protocol over $16$ scenario instances $\times\,10$ seeds,
+\textbf{naive per-channel INT4 is statistically indistinguishable from full precision}
+(paired $\Delta=-0.10$, $95\%$ CI $[-0.33,+0.12]$), as are INT8 and group-wise INT4. We give the
+diagnostic signature, a cheap fix, and a protocol for closed-loop quantization evaluation. We then
+show what \emph{does} break under 4-bit driving deployment---activation outliers, measured on a
+renderer-independent replay path and repaired by a single data-free rotation---and that the same
+axis governs a 7B manipulation policy. Our central claim is methodological: closed-loop evaluation
+is not automatically more trustworthy than open-loop evaluation, and a fixed enumeration order
+against a stateful simulator is sufficient to fabricate a large, stable, statistically significant
+effect that does not exist.
+\end{abstract}
+
+\section{Introduction}
+Post-training quantization (PTQ) is the standard route to running VLA policies on embedded
+compute. How PTQ is \emph{validated} has recently shifted: open-loop, in-distribution accuracy is
+widely criticised as a poor proxy for deployed behaviour, and closed-loop simulation is offered as
+the remedy. In driving specifically, open-loop displacement error is known not to predict
+closed-loop driving quality, and safety-graded closed-loop protocols are increasingly the
+reference standard.
+
+This paper is a caution about the remedy. Closed-loop simulators are stateful software systems.
+When evaluation harnesses reuse a simulator process across configurations---the natural thing to
+do, because simulator startup dominates cost---state from one configuration can leak into the
+next. If configurations are enumerated in a fixed order, that leakage is not noise: it is a
+systematic bias aligned with the treatment variable, and it is invisible to seed averaging,
+paired testing, and confidence intervals, all of which we applied.
+
+We document a concrete instance, quantify it, correct it, and extract a protocol.
+
+\textbf{Contributions.}
+\begin{itemize}
+\item A \emph{contamination mechanism} in closed-loop VLA evaluation: a stateful render server
+combined with fixed-order configuration enumeration, with a diagnostic signature (scene actor
+count) that identifies it in existing logs.
+\item Evidence that it fabricated a large, stable effect: an apparent $40\%$ loss of graded
+closed-loop safety at 4 bits, monotone in \emph{run position} rather than bit-width.
+\item A \emph{corrected measurement}: on a restored harness, INT8, naive INT4 and group-wise INT4
+are all statistically indistinguishable from FP16 on graded closed-loop safety.
+\item A validated, near-free \emph{fix} and an evaluation protocol for closed-loop PTQ studies.
+\item A renderer-independent characterisation of what does break at 4 bits---activation
+outliers---and evidence that the axis and its fix transfer to a 7B manipulation policy.
+\end{itemize}
+
+\section{Setup}
+\textbf{Policy.} OpenDriveVLA-0.5B: a Qwen2.5-0.5B planner on UniAD stage-1 track+map perception,
+emitting the trajectory as autoregressive text. PTQ is weight-only and applied \emph{only} to the
+$168$ backbone Linear layers ($357.8$M parameters); perception, projectors, embeddings and
+\texttt{lm\_head} remain in floating point, so any measured effect is attributable to the
+language/action head.
+
+\textbf{Closed-loop benchmark.} NeuroNCAP re-renders six photorealistic cameras at the driven ego
+pose via NeuRAD, with scripted adversaries in frontal, side and stationary configurations. The
+score is impact-speed graded: $5$ if no collision occurs, else
+$4\cdot\max(0,\,1-v_\text{impact}/v_\text{ref})$, where $v_\text{ref}$ is the closing speed the ego
+would have had on the logged human trajectory. Severity grading matters here: on several scenes
+\emph{every} configuration including FP16 collides, so a binary collision rate carries no signal.
+
+\textbf{Aggregation.} $16$ scene/scenario instances $\times\,10$ seeds per configuration. All
+aggregates carry $95\%$ percentile-bootstrap confidence intervals over scenario-instance means
+($10^4$ resamples); comparisons use paired per-instance differences.
+
+\section{The contamination mechanism}
+\label{sec:mech}
+The NeuRAD render server exposes \texttt{GET /get\_actors} and \texttt{POST /update\_actors}. The
+evaluation engine calls \texttt{get\_actors} \textbf{once at initialisation} and treats the result
+as the scene's pristine actor set; each rollout then pushes a scenario-specific actor set via
+\texttt{update\_actors}. The push persists in the server.
+
+Consequently the actor set a run observes depends on what ran before it in the same server
+process. Measured on scene 0099: a freshly loaded renderer reports $28$ actors; after one
+evaluation it reports $1$; a subsequent evaluation initialised from that mutated state logged
+$60$ actors, against $33$ in the reference run.
+
+The benchmark harness launched one renderer per \emph{scene} and looped configurations inside it:
+\texttt{fp16}, \texttt{naive\_w4}, \texttt{group\_w4\_g128}. FP16 therefore always ran first, on a
+clean scene, and each quantized configuration ran on a more heavily mutated one. The extra
+background vehicles are placed in the roadway, so contaminated runs collide almost immediately.
+
+\textbf{The effect tracks run position, not bit-width.} Table~\ref{tab:position} shows scene 0099
+(stationary). Under contamination the ordering of scores follows the ordering of execution
+exactly. On a clean renderer all three configurations are perfect.
+
+\begin{table}[t]\centering
+\caption{Scene 0099 stationary, $10$ seeds. Archived scores follow \emph{execution order};
+on a restored renderer the differences vanish.}
+\label{tab:position}
+\begin{tabular}{clcc}
+\toprule
+run position & config & archived & restored renderer \\
+\midrule
+1 (clean) & FP16 & $5.00$ & $5.00$ \\
+2 (mutated) & naive W4 & $1.43$ & $\mathbf{5.00}$ \\
+3 (mutated twice) & group W4 g128 & $0.00$ & $\mathbf{5.00}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This also resolves an anomaly we had previously reported as a scientific finding: group-wise INT4
+scored \emph{worse} than naive INT4, despite finer scale granularity being strictly more
+expressive. Under the quantization hypothesis this was inexplicable. Under the contamination
+hypothesis it is forced---group-wise simply ran third.
+
+\textbf{Diagnostic signature.} The scene actor count logged per rollout identifies the problem in
+existing logs without re-running anything: a contaminated run reports a different actor count from
+a freshly initialised one ($60$ vs $33$ here). We recommend logging and asserting it.
+
+\section{Corrected measurement}
+\textbf{Fix.} After a fresh renderer launch, capture the pristine actor set once per scene, and
+\texttt{POST} it back before \emph{every} evaluation. This is validated: a fresh run and a
+restored run both reproduce $5.00$ with $33$ actors on 0099-stationary. Cost is negligible---one
+HTTP request---against the $70$--$100$\,s of reloading the renderer. Within a single evaluation
+invocation multiple seeds are safe, since all seeds share the initialisation-time snapshot.
+
+\textbf{Result.} Table~\ref{tab:corrected} re-measures the full benchmark under this protocol.
+The 4-bit collapse disappears entirely.
+
+\begin{table}[t]\centering
+\caption{Graded closed-loop safety, $16$ scenario instances $\times\,10$ seeds, $95\%$ bootstrap CI
+over instances. Right column reproduces the contaminated numbers we previously reported.}
+\label{tab:corrected}
+\begin{tabular}{lccc}
+\toprule
+config & NCAP (corrected) & $95\%$ CI & previously reported \\
+\midrule
+FP16 & $4.81$ & $[4.62,\,4.97]$ & $4.41$ \\
+W8 (per-channel) & $4.81$ & $[4.58,\,5.00]$ & $4.50$ \\
+naive W4 (per-channel) & $\mathbf{4.71}$ & $[4.38,\,5.00]$ & $2.62$ \\
+group W4 g128 & $\mathbf{4.86}$ & $[4.67,\,4.98]$ & $2.62$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Paired against FP16 over scenario instances: W8 $\Delta=-0.00$, CI $[-0.15,+0.17]$; naive W4
+$\Delta=-0.10$, CI $[-0.33,+0.12]$; group W4 $\Delta=+0.05$, CI $[-0.06,+0.20]$. All three
+intervals contain zero. \textbf{Plain round-to-nearest INT4---no clipping search, no codebook, no
+error compensation, no rotation---already matches full precision on this benchmark.}
+
+Two honest caveats. First, the corrected scores sit near the metric ceiling ($5.00$ on most
+instances), so the benchmark has limited headroom to discriminate \emph{any} recipe; a null result
+here is weaker evidence than a null result on a metric with dynamic range. Second, residual
+variance is scenario and seed noise rather than quantization: FP16 itself scores $0.00$ on some
+seeds of 0108-side and 0346-frontal, exactly as the quantized configurations do.
+
+\section{What actually breaks at 4 bits}
+The corrected result should not be read as ``4-bit driving policies are safe.'' It says the
+\emph{weight} axis is not where this policy breaks. The activation axis is, and we measure it on a
+decoder-only replay path that never contacts the renderer and is therefore untouched by
+Section~\ref{sec:mech}: $162$ captured planner inputs replayed through the planner.
+
+\begin{table}[t]\centering
+\caption{Activation quantization on the driving policy (decoder-only replay of $162$ real inputs;
+renderer-independent). FP16 base rate is $42/162$ legitimately-stationary all-zero plans.}
+\label{tab:act}
+\begin{tabular}{lccc}
+\toprule
+config & ST-P3 L2 avg (m) & all-zero plans & $|xy|>50$\,m \\
+\midrule
+FP16 (reference) & $0.595$ & $42$ (base) & $0$ \\
+W16A4, no rotation & $\mathbf{27.79}$ ($47\times$) & $107$ & $7$ \\
+W16A4 + DCT & $0.646$ & $42$ & $0$ \\
+W4A4, no rotation & $9.34$ & $127$ & $3$ \\
+\textbf{W4A4 + DCT} & $\mathbf{0.611}$ & $41$ & $0$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Quantizing activations to $4$ bits with weights untouched inflates planning error $47\times$ and
+triples the rate of degenerate stay-put plans, in-distribution, where weight-only INT4 is
+lossless. A single data-free orthogonal (DCT-II) rotation, $y=(WQ^\top)(Qx)$, restores FP16-level
+accuracy and returns the degenerate-plan count to base rate. The same axis and the same fix govern
+a 7B manipulation policy (OpenVLA-OFT on LIBERO): weight-only INT4 is near-lossless
+($90.75\%$ vs $90.25\%$ bf16) while naive W4A4 collapses to $0\%$ and rotated W4A4 recovers
+$89.8\%$. Activation outliers, not weight granularity, are the binding constraint in both
+embodiments.
+
+\section{A protocol for closed-loop PTQ evaluation}
+\begin{enumerate}
+\item \textbf{Assume the simulator is stateful until proven otherwise.} Any endpoint that mutates
+scene contents persists across evaluations sharing a process.
+\item \textbf{Snapshot and restore} the mutable state before every evaluation, or relaunch. Assert
+the restore succeeded rather than trusting it.
+\item \textbf{Randomise or interleave configuration order} across process lifetimes. Fixed
+enumeration order converts any residual leakage into a treatment-aligned bias.
+\item \textbf{Log an environment invariant} per rollout (here, the scene actor count) and assert
+it is constant across configurations. This is the cheapest detector we found and it works
+retrospectively on archived logs.
+\item \textbf{Treat a full-precision control as a running check}, not a one-off baseline. A
+control re-run in a late position would have caught this immediately.
+\item \textbf{Distrust monotonicity in enumeration order.} Effects that order themselves the way
+the loop does deserve suspicion, especially when they contradict theory---as group-wise scoring
+below per-channel did here.
+\end{enumerate}
+
+\section{Limitations}
+We document one mechanism in one simulator; we do not claim it generalises to CARLA-based or
+non-reactive benchmarks, though the preconditions---mutable server state plus process reuse---are
+common. The corrected benchmark is near its ceiling, which limits the strength of our null result
+and means we cannot bound how much 4-bit damage a more discriminating driving benchmark would
+reveal. The activation results are in-distribution replay and are not themselves closed-loop.
+Each embodiment is a single checkpoint. Finally, closed-loop success throughout is measured with
+fake-quant weights, so we report no measured latency win.
+
+\section{Conclusion}
+We set out to find a 4-bit quantization recipe that would recover closed-loop driving safety lost
+at 4 bits. There was no loss to recover. The deficit we and our earlier draft had measured was
+produced by a stateful simulator combined with fixed-order configuration enumeration, and it
+withstood every statistical control we applied because those controls address noise, not bias
+aligned with the treatment. On a corrected harness, plain INT4 matches full precision. We
+therefore offer the negative result as the contribution: closed-loop evaluation inherits the
+failure modes of the software it runs on, and the field's current move from open-loop to
+closed-loop metrics buys trustworthiness only if simulator state is controlled as carefully as
+seeds are.
+
+\section*{Reproducibility}
+The restore-protocol harness, the aggregation and diagnostic scripts, the contaminated and
+corrected result trees, and the analysis that identified the mechanism are released with the
+paper.
+
+\section*{Use of AI assistance}
+% ICLR 2027 requires this section; it does not count toward the page limit. Fill in per the
+% AI Policy for Authors before submission.
+\emph{To be completed per ICLR 2027 policy.}
+
+\end{document}
