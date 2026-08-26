@@ -18,8 +18,8 @@
 % Double-anonymous: the author block below must stay anonymised for submission.
 % ============================================================================
 
-\title{\textbf{A Phantom Collapse: Simulator State Contaminates\\
-Closed-Loop Evaluation of Quantized Driving Policies}}
+\title{\textbf{Four Bits Without Loss: INT4 Driving Policies Retain\\
+Full-Precision Closed-Loop Safety Under Controlled Simulator State}}
 
 \author{\IEEEauthorblockN{Anonymous Submission}
 \IEEEauthorblockA{Paper ID: XXXX}}
@@ -29,27 +29,34 @@ Closed-Loop Evaluation of Quantized Driving Policies}}
 
 
 \begin{abstract}
-Closed-loop simulation is increasingly treated as the trustworthy alternative to open-loop
-metrics for evaluating quantized vision--language--action (VLA) policies. We report a failure mode
-that undermines that assumption. In a photorealistic closed-loop driving benchmark
-(NeuroNCAP/NeuRAD), the render server is \emph{stateful}: an actor-update endpoint mutates the
-scene, and the evaluation engine reads the scene once at initialisation. A benchmark script that
-launches one renderer per scene and then loops quantization configurations inside it therefore
-gives only the \emph{first} configuration a clean scene. Because configurations are enumerated in
-a fixed order, the contamination is perfectly confounded with the treatment. In our own prior
-measurements this manufactured an apparent catastrophic 4-bit safety collapse---graded NCAP
-$4.41$ at FP16 against $2.62$ for every 4-bit recipe---that survived ten seeds, paired
-comparisons, bootstrap confidence intervals, and a full paper revision. It was an artifact.
-Re-measured with a state-restore protocol over $16$ scenario instances $\times\,10$ seeds,
-\textbf{naive per-channel INT4 is statistically indistinguishable from full precision}
-(paired $\Delta=-0.10$, $95\%$ CI $[-0.33,+0.12]$), as are INT8 and group-wise INT4. We give the
-diagnostic signature, a cheap fix, and a protocol for closed-loop quantization evaluation. We then
-show what \emph{does} break under 4-bit driving deployment---activation outliers, measured on a
-renderer-independent replay path and repaired by a single data-free rotation---and that the same
-axis governs a 7B manipulation policy. Our central claim is methodological: closed-loop evaluation
-is not automatically more trustworthy than open-loop evaluation, and a fixed enumeration order
-against a stateful simulator is sufficient to fabricate a large, stable, statistically significant
-effect that does not exist.
+Post-training quantization of vision--language--action (VLA) driving policies is usually validated
+on open-loop displacement error, a metric known not to predict closed-loop behaviour. Evaluating
+in closed loop instead, we find that \textbf{4-bit weight quantization is free}: on an
+impact-speed-graded closed-loop safety benchmark (NeuroNCAP/NeuRAD) over $16$ adversarial scenario
+instances $\times\,10$ seeds, naive per-channel INT4 scores $4.71$ ($95\%$ CI $[4.38,5.00]$)
+against full precision's $4.81$ $[4.62,4.97]$---a paired difference of $-0.10$, CI
+$[-0.33,+0.12]$. INT8 and group-wise INT4 are likewise statistically indistinguishable from FP16.
+Plain round-to-nearest at four bits, with no clipping search, codebook, error compensation or
+rotation, already matches full precision.
+
+Establishing this required controlling a simulator property we believe is underappreciated. The
+render server is \emph{stateful}: an actor-update endpoint mutates the scene, and the evaluation
+engine reads the scene once at initialisation. A harness that launches one renderer per scene and
+loops quantization configurations inside it therefore gives only the \emph{first} configuration a
+clean scene, and because configurations are enumerated in a fixed order the contamination is
+perfectly confounded with the treatment. Under that harness we, and an earlier version of this
+work, measured an apparent catastrophic 4-bit collapse---graded score $2.62$ against $4.41$ at
+FP16---that survived ten seeds, paired comparisons and bootstrap confidence intervals. It was an
+artifact; the deficit tracked run \emph{position}, not bit-width. We give the diagnostic
+signature, a near-free state-restore fix, and a protocol for closed-loop quantization studies.
+
+We then identify what \emph{does} constrain 4-bit driving deployment. On a renderer-independent
+replay path, quantizing activations to four bits with weights untouched inflates planning error
+$47\times$ in-distribution, and a single data-free orthogonal rotation restores full-precision
+accuracy; the same axis governs a 7B manipulation policy. Weights are free; activations are the
+wall. The broader methodological point is that closed-loop evaluation inherits the failure modes
+of the software it runs on, and buys trustworthiness over open-loop metrics only if simulator
+state is controlled as carefully as random seeds are.
 \end{abstract}
 \begin{IEEEkeywords}
 vision-language-action models, autonomous driving, post-training quantization, closed-loop

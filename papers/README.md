@@ -7,7 +7,7 @@ is indistinguishable from FP16 (`../analysis/RESULTS_clean_harness.md`).
 
 ## Current
 
-- **`iclr27_phantom_collapse.tex`** — the corrected result. Documents the contamination mechanism,
+- **`four_bits_without_loss.tex`** — the corrected result. Documents the contamination mechanism,
   the state-restore fix, and the re-measurement showing no 4-bit safety collapse. Target: ICLR 2027
   (needs `iclr2027_conference.sty`, anonymisation, and the AI-disclosure section).
 
