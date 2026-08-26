@@ -244,3 +244,10 @@ videos/
 *.ckpt
 *.bin
 *.pcd.bin
+
+# --- vendored third-party build artifacts (2026-08-26) ---
+# third_party/ is vendored mmcv/mmdet3d SOURCE (~23 MB, kept so the env is reproducible).
+# Their build/ trees are 330 MB of compiled output including a 78 MB _ext .so -- rebuildable,
+# and far past what belongs in a git remote.
+third_party/**/build/
+third_party/**/*.so
