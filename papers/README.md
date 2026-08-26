@@ -1,47 +1,35 @@
 # Papers
 
-Manuscripts from the OpenDriveVLA quantization study. All share four authors — Justin Williams,
-Kishor Datta Gupta, Roy George, Mrinmoy Sarkar (Clark Atlanta University) — and **unpublished draft**
-status. Each `.tex` has a matching `*.README.md` with its thesis, target venue, key numbers, and
-build notes.
+Status after the 2026-08-26 correction (see `../FINDINGS.md`). The NeuroNCAP render server is
+stateful and the old harness enumerated configs in a fixed order against one renderer per scene,
+so every closed-loop quantization comparison was confounded with run position. Re-measured, INT4
+is indistinguishable from FP16 (`../analysis/RESULTS_clean_harness.md`).
 
-**`opendrivevla_full_paper.tex` is the combined, comprehensive paper** — all evaluations
-(open-loop, closed-loop 14-scene, on-device Orin systems + accuracy + per-scene success), the
-quantization methodology (RTN / per-channel vs group-wise / the outlier–scale mechanism), and
-comparison tables to prior planners (UniAD/VAD/OpenDriveVLA) and quantizers (RTN/GPTQ/AWQ). The five
-drafts below remain for venue-specific submission.
+## Current
 
-| File | Venue | One-line thesis |
-|------|-------|-----------------|
-| `opendrivevla_full_paper.tex` | **Combined** | **Everything: blindness + granularity fix + edge + on-Orin systems/accuracy/per-scene, with methodology and prior-method comparisons.** |
-| `workshop1_openloop_blind.tex` | Workshop | Open-loop nuScenes L2 is ~ego-extrapolation (19× ablation), so "INT4 is lossless" is a metric artifact. |
-| `workshop2_granularity.tex` | Workshop | Scale **granularity**, not bit-width, decides whether quantized generation survives domain shift. |
-| `workshop3_edge_memory.tex` | Workshop | The planner is free for the edge; **perception** is the memory/latency wall. |
-| `conference_closedloop_reveals.tex` | Main conference | Open-loop hides quantization damage; closed-loop reveals a granularity collapse with a near-free fix. |
-| `journal_comprehensive.tex` | Journal | The full study: blindness + collapse + granularity fix + edge memory, with threats-to-validity. |
+- **`iclr27_phantom_collapse.tex`** — the corrected result. Documents the contamination mechanism,
+  the state-restore fix, and the re-measurement showing no 4-bit safety collapse. Target: ICLR 2027
+  (needs `iclr2027_conference.sty`, anonymisation, and the AI-disclosure section).
 
-## Headline numbers (real-camera NeuroNCAP, 14 scenes / 16 scenario instances, 10 seeds each)
+## Still standing
 
-Mean generation coherence (well-formed predicted-frame rate):
+- **`workshop1_openloop_blind.tex`** — open-loop L2 is ego-motion extrapolation (19x ego ablation).
+  Entirely replay-based, never touched the renderer. Unaffected. Note its closing paragraph
+  proposes closed-loop testing as the remedy; that framing now needs the caveat from the
+  correction, but no result in it is falsified.
+- **`workshop3_edge_memory.tex`** — memory/latency profile and Jetson Orin measurements. Replay and
+  on-device only. Unaffected, except one clause claiming group-wise INT4 "preserves generation
+  coherence" — coherence was measured on the contaminated harness and should be cut.
 
-| Config | mean coherence | per-scenario behaviour |
-|--------|----------------|------------------------|
-| FP16 | 76.0% | — |
-| INT4 per-channel (naive) | **3.7%** | collapses (≤15%) on 15/16 |
-| INT4 group-128 | **73.5%** | recovers (≥85% of FP16) on 13/16 |
+## Needs revision, not deletion
 
-Group-wise ties/beats FP16 on 13/16 scenarios; partial recovery on 3 (0099, 0101, 0796).
-Open-loop: INT4 L2 = 0.33 m (lossless); ego-state ablation → 6.38 m (**19×**).
+- **`icra27_crossembodiment.tex`** — mixed. Its driving *closed-loop* sections (coherence,
+  granularity-under-domain-shift) are void. Its activation-quantization crossover is
+  replay-based and survives; its LIBERO/OpenVLA-OFT half has not been audited for an analogous
+  state-reuse problem and should be before use.
 
-## Building
+## Removed 2026-08-26
 
-No system TeX on the research box. Compile with `latexmk -pdf <file>.tex` (or Overleaf). Each paper is
-self-contained `article` class (booktabs, authblk, hyperref). Bibliographies are inline
-`thebibliography`; some entries still carry `(Replace with verified citation.)` placeholders to fill
-before submission.
-
-## Status / caveats
-Draft. Results span 14 scenes (16 scenario instances) — the full released closed-loop benchmark;
-group-wise recovery is partial on 3 (0099, 0101, 0796); several scenes are failed by every config
-including FP16 (collision metric is confounded — coherence is the lead metric).
-See `../RESULTS.md` and `../FINDINGS.md`.
+`conference_closedloop_reveals`, `opendrivevla_full_paper`, `workshop2_granularity`,
+`journal_comprehensive`, `paper_drivedvla_quant` — each built its central claim on the
+contaminated closed-loop numbers. They remain in git history prior to this commit.
