@@ -12,8 +12,6 @@
 %   corrected closed-loop    -> closed_loop_harness/run_sweep_clean.sh, output/remeasure_clean
 %   contaminated closed-loop -> output/benchmark12 (archived, run 2026-06-29)
 %   activation crossover     -> icra27/e1 (decoder-only replay; never touches the renderer)
-%   manipulation             -> OpenVLA-OFT / LIBERO pipeline (separate harness, NOT yet audited
-%                               for the same class of state-reuse bug -- see Limitations)
 %
 % Double-anonymous: the author block below must stay anonymised for submission.
 % ============================================================================
@@ -54,12 +52,12 @@ The weight axis being free does not make 4-bit deployment free. On a renderer-in
 path, quantizing \emph{activations} to four bits with weights left untouched inflates planning
 error $47\times$ in-distribution---precisely where weight-only INT4 is lossless---and drives the
 rate of degenerate stay-put plans from $42/162$ to $107/162$. A single data-free orthogonal (DCT)
-rotation restores full-precision accuracy and returns the degenerate count to base rate. The same
-axis and the same fix govern a 7B manipulation policy. The practical conclusion is a division of
-labour: spend no effort on weight-grid engineering for driving policies at four bits, and spend it
-all on activation outliers. The methodological conclusion is that closed-loop evaluation inherits
-the failure modes of the software it runs on, and buys trustworthiness over open-loop metrics only
-if simulator state is controlled as carefully as random seeds are.
+rotation restores full-precision accuracy and returns the degenerate count to base rate. The
+practical conclusion is a division of labour: spend no effort on weight-grid engineering for
+this driving policy at four bits, and spend it all on activation outliers. The methodological
+conclusion is that closed-loop evaluation inherits the failure modes of the software it runs on,
+and buys trustworthiness over open-loop metrics only if simulator state is controlled as carefully
+as random seeds are.
 \end{abstract}
 \begin{IEEEkeywords}
 vision-language-action models, autonomous driving, post-training quantization, closed-loop
@@ -93,11 +91,11 @@ closed-loop safety at 4 bits, monotone in \emph{run position} rather than bit-wi
 \item A \emph{corrected measurement}: on a restored harness, INT8, naive INT4 and group-wise INT4
 are all statistically indistinguishable from FP16 on graded closed-loop safety.
 \item A validated, near-free \emph{fix} and an evaluation protocol for closed-loop PTQ studies.
-\item A renderer-independent characterisation of what does break at 4 bits---activation
-outliers---and evidence that the axis and its fix transfer to a 7B manipulation policy
-(Section~\ref{sec:activations}). Together with the corrected weight-axis result, this gives a
-division of labour for 4-bit driving deployment: weight grids need no engineering; activation
-outliers need a rotation.
+\item A renderer-independent characterisation of what does break at 4 bits on this driving
+policy---activation outliers---measured on a replay path structurally immune to the contamination
+in Section~\ref{sec:mech} (Section~\ref{sec:activations}). Together with the corrected weight-axis
+result, this gives a division of labour for 4-bit driving deployment: weight grids need no
+engineering; activation outliers need a rotation.
 \end{itemize}
 
 \section{Setup}
@@ -228,11 +226,8 @@ W4A4, no rotation & $9.34$ & $127$ & $3$ \\
 Quantizing activations to $4$ bits with weights untouched inflates planning error $47\times$ and
 triples the rate of degenerate stay-put plans, in-distribution, where weight-only INT4 is
 lossless. A single data-free orthogonal (DCT-II) rotation, $y=(WQ^\top)(Qx)$, restores FP16-level
-accuracy and returns the degenerate-plan count to base rate. The same axis and the same fix govern
-a 7B manipulation policy (OpenVLA-OFT on LIBERO): weight-only INT4 is near-lossless
-($90.75\%$ vs $90.25\%$ bf16) while naive W4A4 collapses to $0\%$ and rotated W4A4 recovers
-$89.8\%$. Activation outliers, not weight granularity, are the binding constraint in both
-embodiments.
+accuracy and returns the degenerate-plan count to base rate. Activation outliers, not weight
+granularity, are the binding constraint on this policy at four bits.
 
 \section{A protocol for closed-loop PTQ evaluation}
 \begin{enumerate}
@@ -257,16 +252,17 @@ We document one mechanism in one simulator; we do not claim it generalises to CA
 non-reactive benchmarks, though the preconditions---mutable server state plus process reuse---are
 common. The corrected benchmark is near its ceiling, which limits the strength of our null result
 and means we cannot bound how much 4-bit damage a more discriminating driving benchmark would
-reveal. The activation results are in-distribution replay and are not themselves closed-loop; the
-title's second half is therefore a narrower claim than the first---weight-axis freedom is a
-closed-loop, safety-graded result, while the activation-axis wall is an accuracy result on a
-replay path. The manipulation cross-embodiment evidence (Section~\ref{sec:activations}) comes from
-a separate LIBERO harness that we have \emph{not} audited for the class of state-reuse bug
-identified in Section~\ref{sec:mech}; given that a nominally identical bug produced a stable, false
-effect in our own driving benchmark, we flag this as an open risk rather than assume the
-manipulation harness is exempt, and we do not present it as independently re-verified. Each
-embodiment is a single checkpoint. Finally, closed-loop success throughout is measured with
-fake-quant weights, so we report no measured latency win.
+reveal. The activation results (Section~\ref{sec:activations}) are in-distribution replay and are 
+not
+themselves closed-loop; the title's second half is therefore a narrower claim than the
+first---weight-axis freedom is a closed-loop, safety-graded result, while the activation-axis wall
+is an accuracy result on a replay path. We scope this paper to the driving policy alone: an
+earlier draft additionally claimed the activation axis transfers to a 7B manipulation policy on a
+separate LIBERO harness, but given that a nominally identical statefulness bug produced a stable,
+false effect in our own driving benchmark (Section~\ref{sec:mech}), we do not include that claim
+here without first auditing the LIBERO harness for the same failure class. This policy is a single
+checkpoint. Finally, closed-loop success throughout is measured with fake-quant weights, so we
+report no measured latency win.
 
 \section{Conclusion}
 We set out to find a 4-bit quantization recipe that would recover closed-loop driving safety lost
