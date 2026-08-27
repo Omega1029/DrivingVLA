@@ -33,3 +33,11 @@ and should be treated as unverified until re-measured under restore. Also unaudi
 **Not evaluated at all**: the OpenVLA-OFT / LIBERO manipulation pipeline. Explicitly out of
 scope for `papers/four_bits_without_loss.tex` per 2026-08-26 decision to drop that claim rather
 than audit it under deadline pressure.
+
+## 2026-08-27 09:15 — config decision — N/A
+
+User authorized: re-measurement (free-drive re-run, and any future closed-loop re-measurement
+task in the queue) may claim GPUs 1-4 itself without waiting for a human-kicked-off cycle. Added
+the corresponding safety rule to AUTOLOOP.md (rule 5): check `nvidia-smi` and recent PROGRESS.md
+entries before claiming; never kill a process this loop didn't start; ambiguous state still means
+stop-and-flag, not proceed. Cadence and push-permission scope still open before scheduling starts.

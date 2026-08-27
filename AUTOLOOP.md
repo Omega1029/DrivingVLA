@@ -35,10 +35,15 @@ is exactly the failure this loop exists to prevent.
 4. **One task per cycle.** Pull the next unclaimed item from the queue below, do it, log it,
    stop. Don't chain into the next task in the same invocation — that's how scope creep and
    compounding errors happen unattended.
-5. **If GPU state is ambiguous** (renderer/model processes already running, ports already bound,
-   an in-progress sweep with unknown ownership) — check `PROGRESS.md` for the last entry before
-   touching anything. If it's not clear whether a previous cycle's job finished, flag it and stop
-   rather than guessing.
+5. **Re-measurement is authorized to claim GPUs 1-4 itself** — it does not need to wait for a
+   human-kicked-off cycle. Before claiming, always: (a) `nvidia-smi --query-compute-apps` and
+   check nothing unexpected is already running on those GPUs; (b) check the last few
+   `PROGRESS.md` entries for an in-progress or recently-started sweep this loop itself launched.
+   If GPU state is ambiguous for any other reason — a process owned by someone other than this
+   loop, ports bound by something not traceable to a prior logged cycle — **stop and flag it,
+   do not kill anything you didn't start.** `run_sweep_clean.sh`'s `kill_port` (waits for actual
+   port release, PID-tracked) is the pattern to reuse for this loop's own teardown; it is not
+   license to kill arbitrary processes on those GPUs.
 6. **Budget**: see the cycle-level token/dollar cap set at schedule time. If a task will exceed
    it, do the read-only / analysis half and flag the compute-heavy half for a human-approved cycle.
 
@@ -50,9 +55,11 @@ is exactly the failure this loop exists to prevent.
   file. Confirm by inspection, then decide: if confirmed, write a `run_freedrive_clean.sh`
   following the restore pattern in `closed_loop_harness/run_sweep_clean.sh` (do not run it yet —
   that's compute-heavy and belongs in the next cycle or a human-approved one).
-- [ ] **Re-run free-drive under the restore protocol** (only after the above is written and
-  reviewed). Compare against the currently-reported W8 97.1% / naive W4 18.6% table. Log the
-  result in PROGRESS.md regardless of outcome. Do NOT touch any `.tex` file with the result.
+- [ ] **Re-run free-drive under the restore protocol.** Authorized to claim GPUs 1-4 itself once
+  `run_freedrive_clean.sh` exists and the confirmation step above is done (still one task per
+  cycle: writing the script and running it are separate cycles unless time clearly allows both).
+  Compare against the currently-reported W8 97.1% / naive W4 18.6% table. Log the result in
+  PROGRESS.md regardless of outcome. Do NOT touch any `.tex` file with the result.
 - [ ] **Audit `run_positive_hunt.sh`, `run_awq.sh`, `run_quant_full.sh`, `run_quant_sweep.sh`**
   for the same pattern. These generated the AWQ/W4A4+DCT numbers currently in
   `analysis/mechanism_all_configs.py`'s inputs (already-void per the correction, but the raw
