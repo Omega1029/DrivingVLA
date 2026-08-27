@@ -28,8 +28,10 @@ is exactly the failure this loop exists to prevent.
    full stop — even if you are confident it's correct. The last two times a result this project
    trusted got quietly wrong, it was because no one paused to ask why the harness behaved oddly
    until pushed.
-2. **Never `git push --force`, never push to `master`/`main`.** All work stays on
-   `auto/opendrivevla-verify`. Merging to `mechanism-analysis` or `master` is a human decision.
+2. **Do not push at all, for now.** Commit locally on `auto/opendrivevla-verify` only — never
+   `git push` (force or otherwise), never touch `master`/`main`. Local commits are how progress
+   persists between cycles; a human will review the accumulated history and push (or not) when
+   ready. This is revisitable — if push gets re-enabled later, it updates here first.
 3. **A commit requires the verification gate to pass** (`analysis/verify_before_commit.sh`). If
    it fails, fix the specific failure or flag it — do not commit around it.
 4. **One task per cycle.** Pull the next unclaimed item from the queue below, do it, log it,
@@ -84,6 +86,6 @@ strengthens the gate rather than asserting a result.
 
 ## Every cycle ends with
 
-An append to `PROGRESS.md` (never edit past entries), a commit on `auto/opendrivevla-verify` if
-the gate passed, and a push. If nothing was accomplished (blocked, ambiguous state, budget), log
-that too — a logged no-op is informative; a silent one looks like the loop died.
+An append to `PROGRESS.md` (never edit past entries) and a commit on `auto/opendrivevla-verify`
+if the gate passed — no push (see rule 2). If nothing was accomplished (blocked, ambiguous state,
+budget), log that too — a logged no-op is informative; a silent one looks like the loop died.

@@ -41,3 +41,9 @@ task in the queue) may claim GPUs 1-4 itself without waiting for a human-kicked-
 the corresponding safety rule to AUTOLOOP.md (rule 5): check `nvidia-smi` and recent PROGRESS.md
 entries before claiming; never kill a process this loop didn't start; ambiguous state still means
 stop-and-flag, not proceed. Cadence and push-permission scope still open before scheduling starts.
+
+## 2026-08-27 09:22 — config decision — N/A
+
+User set cadence: once/day. And: no push for now -- scheduled cycles commit locally on
+auto/opendrivevla-verify only; a human pushes when ready. AUTOLOOP.md rules 2 and the
+end-of-cycle checklist updated accordingly.
