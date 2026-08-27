@@ -47,3 +47,23 @@ stop-and-flag, not proceed. Cadence and push-permission scope still open before 
 User set cadence: once/day. And: no push for now -- scheduled cycles commit locally on
 auto/opendrivevla-verify only; a human pushes when ready. AUTOLOOP.md rules 2 and the
 end-of-cycle checklist updated accordingly.
+
+## 2026-08-27 09:45 — config decision — N/A
+
+Resolved via /schedule: cloud routines run in isolated per-firing sandboxes with no access to
+this machine (no GPUs, no ~/neuroncap/, nothing outside the git checkout) and nothing persists
+between firings except what's pushed. Consequences:
+- GPU re-measurement can only ever be interactive/local, never part of the daily cloud loop.
+  Moved to its own section in AUTOLOOP.md, explicitly marked do-not-attempt-from-cloud.
+- Push is now allowed for the cloud routine specifically, scoped: `git push origin
+  auto/opendrivevla-verify` only, never --force, never master/main, never another branch. Without
+  this the daily loop is architecturally incapable of progress -- every firing would re-clone the
+  same static state and reach the same conclusion forever.
+- Copied 6 local-only harness scripts the cloud routine needs to audit into
+  `closed_loop_harness/external_reference/` (snapshot, not a live mirror, per its README) since
+  the cloud sandbox cannot see `~/neuroncap/neuro-ncap/` at all.
+- AUTOLOOP.md's task queue split into a cloud-scoped daily section and an interactive-only
+  section. Rules 2 and 5 rewritten accordingly.
+
+Proceeding to create the RemoteTrigger routine: claude-sonnet-5, once/day, repo
+github.com/Omega1029/DrivingVLA, branch auto/opendrivevla-verify.

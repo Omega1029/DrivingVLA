@@ -28,53 +28,87 @@ is exactly the failure this loop exists to prevent.
    full stop — even if you are confident it's correct. The last two times a result this project
    trusted got quietly wrong, it was because no one paused to ask why the harness behaved oddly
    until pushed.
-2. **Do not push at all, for now.** Commit locally on `auto/opendrivevla-verify` only — never
-   `git push` (force or otherwise), never touch `master`/`main`. Local commits are how progress
-   persists between cycles; a human will review the accumulated history and push (or not) when
-   ready. This is revisitable — if push gets re-enabled later, it updates here first.
+2. **Push is allowed, narrowly.** `git push origin auto/opendrivevla-verify` only. Never
+   `--force`, never push to `master`/`main`, never create or push any other branch. This is how
+   a cloud routine's work survives past its own ephemeral sandbox — see "Execution modes" below
+   for why that matters. If a push is rejected (non-fast-forward), pull/rebase onto the current
+   branch tip first; if that doesn't resolve cleanly, stop and flag rather than force.
 3. **A commit requires the verification gate to pass** (`analysis/verify_before_commit.sh`). If
    it fails, fix the specific failure or flag it — do not commit around it.
 4. **One task per cycle.** Pull the next unclaimed item from the queue below, do it, log it,
    stop. Don't chain into the next task in the same invocation — that's how scope creep and
    compounding errors happen unattended.
-5. **Re-measurement is authorized to claim GPUs 1-4 itself** — it does not need to wait for a
-   human-kicked-off cycle. Before claiming, always: (a) `nvidia-smi --query-compute-apps` and
-   check nothing unexpected is already running on those GPUs; (b) check the last few
-   `PROGRESS.md` entries for an in-progress or recently-started sweep this loop itself launched.
-   If GPU state is ambiguous for any other reason — a process owned by someone other than this
-   loop, ports bound by something not traceable to a prior logged cycle — **stop and flag it,
-   do not kill anything you didn't start.** `run_sweep_clean.sh`'s `kill_port` (waits for actual
-   port release, PID-tracked) is the pattern to reuse for this loop's own teardown; it is not
-   license to kill arbitrary processes on those GPUs.
+5. **GPU work is manual-only, never part of the daily cloud loop.** The daily routine runs in
+   an isolated cloud sandbox with no access to this machine's GPUs, the local NeuroNCAP/NeuRAD
+   install, or the nuScenes data — it is architecturally incapable of re-measurement, and should
+   never attempt it. Free-drive re-runs and any other GPU-dependent task in the queue are done
+   interactively, by explicit request, in a local session. If that ever happens: before claiming
+   GPUs, check `nvidia-smi --query-compute-apps` for unexpected existing usage and check recent
+   `PROGRESS.md` entries for an in-progress sweep already launched; stop and flag rather than
+   kill anything not traceable to a logged cycle of this project's own.
 6. **Budget**: see the cycle-level token/dollar cap set at schedule time. If a task will exceed
    it, do the read-only / analysis half and flag the compute-heavy half for a human-approved cycle.
 
-## Task queue (ordered — top item is next)
+## Execution modes
 
-- [ ] **Audit `~/neuroncap/neuro-ncap/run_freedrive.sh` for the renderer-reuse bug.** Already
-  confirmed structurally similar to the buggy `run_benchmark_12.sh` (see PROGRESS.md 2026-08-27):
-  `launch_lane` once per scene, configs looped inside, no `update_actors` restore call in the
-  file. Confirm by inspection, then decide: if confirmed, write a `run_freedrive_clean.sh`
-  following the restore pattern in `closed_loop_harness/run_sweep_clean.sh` (do not run it yet —
-  that's compute-heavy and belongs in the next cycle or a human-approved one).
-- [ ] **Re-run free-drive under the restore protocol.** Authorized to claim GPUs 1-4 itself once
-  `run_freedrive_clean.sh` exists and the confirmation step above is done (still one task per
-  cycle: writing the script and running it are separate cycles unless time clearly allows both).
-  Compare against the currently-reported W8 97.1% / naive W4 18.6% table. Log the result in
-  PROGRESS.md regardless of outcome. Do NOT touch any `.tex` file with the result.
-- [ ] **Audit `run_positive_hunt.sh`, `run_awq.sh`, `run_quant_full.sh`, `run_quant_sweep.sh`**
-  for the same pattern. These generated the AWQ/W4A4+DCT numbers currently in
-  `analysis/mechanism_all_configs.py`'s inputs (already-void per the correction, but the raw
-  sweep scripts haven't been individually confirmed clean or dirty — worth knowing for any future
-  reuse of that data).
-- [ ] **Attempt a LaTeX compile of `papers/four_bits_without_loss.tex` and
-  `papers/icra27_crossembodiment.tex`.** No LaTeX toolchain was available as of 2026-08-26; check
-  whether one can be installed without sudo (e.g. a user-local tectonic/texlive binary), and if
-  so compile and report errors. Fix only compile errors (rule 1 still applies to content).
-- [ ] (blocked on the above two) **If free-drive is confirmed contaminated and re-measured**,
-  prepare — but do not apply — a suggested diff to `papers/four_bits_without_loss.tex` and any
-  other paper still citing the old free-drive numbers, and log it in PROGRESS.md for human
-  review.
+This loop runs in two very different contexts and the task queue below is split accordingly.
+
+**Daily cloud routine** (scheduled via claude.ai routines, `claude-sonnet-5`, once/day). Each
+firing is a **fresh, isolated sandbox with its own git clone** — nothing on it persists between
+firings except what gets pushed. It can read/write anything in this repo, including the snapshot
+copies under `closed_loop_harness/external_reference/`, and it can install tooling (e.g. attempt
+a LaTeX toolchain). It has **no access to GPUs, the local NeuroNCAP/NeuRAD install, the nuScenes
+data, or anything outside this git checkout.** Because nothing survives without a push, this mode
+must push (rule 2) — a no-push cloud cycle is indistinguishable from doing nothing, since the
+next day's sandbox starts from the same state regardless of what the previous one did internally.
+
+**Interactive/local session** (this machine, run by explicit request, not scheduled). Has real
+access to GPUs 1-4, the local harness, and the actual `~/neuroncap/` install. This is where any
+GPU-dependent task in the queue below actually executes — the daily cloud routine only prepares
+for it (drafting scripts, confirming bug patterns by static audit) and flags it as ready.
+
+## Task queue
+
+Mark items `[x]` (with the commit hash) when done, in both this file and a PROGRESS.md entry.
+Pull the next unclaimed `[ ]` item matching your execution mode; if none match, log a no-op.
+
+### Daily cloud routine queue (git-scoped, no GPU needed)
+
+- [x] Confirm `run_freedrive.sh` has the renderer-reuse bug by inspection. **Done 2026-08-27**
+  (interactively, before the cloud routine existed): `launch_lane` once per scene, configs
+  looped inside, no `update_actors` restore call anywhere in the file. Snapshot copied to
+  `closed_loop_harness/external_reference/run_freedrive.sh`.
+- [ ] Audit the other five scripts in `closed_loop_harness/external_reference/` (`run_positive_hunt.sh`,
+  `run_awq.sh`, `run_quant_full.sh`, `run_quant_sweep.sh`, `parallel_benchmark.sh`) for the same
+  pattern: one renderer/server launched per scene, configs or seeds looped inside, no state
+  restore between them. Log each as confirmed-buggy, confirmed-clean, or inconclusive-why in
+  PROGRESS.md. One script per cycle is fine if time is short.
+- [ ] **Draft** (do not run — no GPU access) `run_freedrive_clean.sh`, mirroring the restore
+  protocol already validated in `closed_loop_harness/run_sweep_clean.sh` (capture pristine actor
+  state once per scene, `update_actors` restore before every invocation, PID-tracked teardown
+  that waits for actual port release). Only after the audit above confirms the bug.
+- [ ] Similarly draft cleaned versions of any other script confirmed buggy above.
+- [ ] Attempt to compile `papers/four_bits_without_loss.tex` and `papers/icra27_crossembodiment.tex`.
+  Try a user-local LaTeX toolchain (e.g. `tectonic` via cargo, or check for a preinstalled
+  `pdflatex`/`tectonic`) since neither was available as of 2026-08-26. Fix only compile errors —
+  rule 1 still applies to content.
+- [ ] Static review of `analysis/*.py`: correctness of the bootstrap CI math, the outcome
+  classification logic (`brake_onset_ci.py`'s early/frozen/moving split — see the survivorship
+  bug it already caught once, documented in its own comments), and whether
+  `RESULTS_clean_harness.md` accurately reflects what the scripts actually compute. This is
+  read-only review — do not re-run anything GPU/renderer-dependent.
+- [ ] Cross-check `papers/four_bits_without_loss.tex`'s claims against what's actually in
+  `analysis/RESULTS_clean_harness.md`, `PROGRESS.md`, and the git log, sentence by sentence.
+  Flag (do not fix) any claim that isn't traceable to committed evidence.
+
+### Interactive/local-only queue (needs GPUs — do not attempt from the cloud routine)
+
+- [ ] Once `run_freedrive_clean.sh` exists and has been reviewed: run it under the restore
+  protocol, claiming GPUs 1-4. Compare against the currently-reported free-drive numbers
+  (W8 97.1%, naive W4 18.6%). Log the result in PROGRESS.md regardless of outcome. Do NOT touch
+  any `.tex` file with the result — flag it for review per rule 1.
+- [ ] Extend the closed-loop CI tightening (more scenes/seeds) if there's compute budget and a
+  human has asked for it specifically — not a default background task.
 
 ## Verification gate
 
@@ -86,6 +120,10 @@ strengthens the gate rather than asserting a result.
 
 ## Every cycle ends with
 
-An append to `PROGRESS.md` (never edit past entries) and a commit on `auto/opendrivevla-verify`
-if the gate passed — no push (see rule 2). If nothing was accomplished (blocked, ambiguous state,
-budget), log that too — a logged no-op is informative; a silent one looks like the loop died.
+An append to `PROGRESS.md` (never edit past entries), marking the completed queue item `[x]`
+with the commit hash, a commit on `auto/opendrivevla-verify` if the gate passed, and (cloud
+routine only — see rule 2) a push. If nothing was accomplished (blocked, ambiguous state,
+budget, no matching queue item for this execution mode), log that too — a logged no-op is
+informative; a silent one looks like the loop died. Since a cloud cycle's sandbox is destroyed
+after it ends, its final message must also state in full what it did and why, not just point at
+a commit — that message is the only record if the push somehow fails.

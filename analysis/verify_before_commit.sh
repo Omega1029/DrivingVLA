@@ -70,6 +70,14 @@ else
   echo "  OK"
 fi
 
+echo "=== 5. Any push in staged scripts is scoped to auto/opendrivevla-verify only ==="
+if [ -n "$CHANGED_SH" ] && git diff --cached -- $CHANGED_SH | grep -v '^+.*grep' | grep -E '^\+.*git push' | grep -qvE 'origin auto/opendrivevla-verify'; then
+  echo "  FAIL: a staged script pushes somewhere other than origin auto/opendrivevla-verify"
+  FAIL=1
+else
+  echo "  OK"
+fi
+
 if [ $FAIL -ne 0 ]; then
   echo; echo "GATE FAILED. Do not commit. Fix or log a flagged entry in PROGRESS.md instead."
   exit 1
