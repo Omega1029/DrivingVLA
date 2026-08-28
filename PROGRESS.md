@@ -99,3 +99,49 @@ Two consequences worth escalating:
 No `.tex` file touched. Free-drive re-measurement under the restore protocol is running now
 (`run_freedrive_clean.sh`, 14 scenes x 4 configs x 10 seeds, GPUs 1-4); result will be a separate
 entry.
+
+## 2026-08-28 — draft clean versions of the remaining 5 confirmed-buggy scripts — PASS
+
+Cloud routine cycle. Picked the next unclaimed daily-queue item: "draft cleaned versions of any
+other script confirmed buggy above" (the five from the 2026-08-27 10:05 audit table). Read-only
+audit + drafting only, no GPU/renderer access from this sandbox — nothing was run.
+
+Drafted five new scripts in `closed_loop_harness/` (originals untouched, still snapshotted
+read-only in `external_reference/`):
+
+- **`run_positive_hunt_clean.sh`** (from `run_positive_hunt.sh`): same per-scene `launch_lane`
+  pattern as `run_freedrive.sh`. Fix mirrors `run_freedrive_clean.sh` exactly — capture
+  `/get_actors` once right after each fresh launch, `/update_actors` restore before every
+  main.py invocation (both the freedrive run and every adversarial-category run, for every
+  config). Also swapped the original's fire-and-forget `pkill -9 -f` for the wait-for-actual-
+  release `kill_port` helper used in `run_sweep_clean.sh`, since that's the same "kill without
+  confirming release" defect documented in that script's own comments — a related bug in the
+  same class this loop exists to catch, not a new one I went looking for.
+- **`parallel_benchmark_clean.sh`** (from `parallel_benchmark.sh`): same per-scene renderer /
+  looped-configs-and-categories pattern across 4 lanes. Same fix: capture pristine actors once
+  per scene after the renderer comes up, restore before every (category, config) main.py call.
+  Same `kill_port`-for-`pkill` swap as above, for the same reason.
+- **`run_quant_sweep_clean.sh`** (from `run_quant_sweep.sh`) and **`run_quant_full_clean.sh`**
+  (from `run_quant_full.sh`): these two don't launch a renderer at all — they assume one is
+  already up on :8000 and loop configs against it. Fix: capture whatever actor state is present
+  on :8000 once at script start, restore it before every rollout (including, for
+  `run_quant_full_clean.sh`, the AWQ calibration rollout). Flagged explicitly in each script's
+  header comment: this only guarantees identical state *across configs within one run*, not that
+  the captured state is the scene's true pristine state, since the script never owns the launch —
+  operators must run these immediately after a fresh render-server start on scene 0103.
+- **`run_awq_clean.sh`** (from `run_awq.sh`): same no-launch, assumes-live-server shape. Restores
+  actor state before the calibration rollout and both AWQ-W4 scoring rollouts. Header repeats the
+  2026-08-27 10:05 second-order-contamination flag verbatim: this fix does not retroactively
+  clean the *original* `logs/awq_scales.pt` if that was calibrated on a mutated renderer —
+  recalibration from scratch with this version would be needed to trust it, and that's a human
+  call, not something to decide here.
+
+All five: `bash -n` syntax-checked clean. Not executed — no GPU/renderer access from this
+sandbox, and even with access these are drafts pending human review before first use (per
+AUTOLOOP.md's execution-modes split). No `.tex` file touched; no claim, number, or interpretation
+changed anywhere. `analysis/verify_before_commit.sh` passed (no `.tex` changed, no closed-loop
+output dir changed, no force-push/off-branch-push patterns in the new scripts).
+
+Marked the queue item `[x]` in AUTOLOOP.md. Next unclaimed cloud-queue items: attempting to
+compile the two papers with a user-local LaTeX toolchain, and the two static-review items on
+`analysis/*.py` and `four_bits_without_loss.tex` vs. `RESULTS_clean_harness.md`.

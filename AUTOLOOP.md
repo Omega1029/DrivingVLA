@@ -88,7 +88,12 @@ Pull the next unclaimed `[ ]` item matching your execution mode; if none match, 
   interactive queue). Mirrors the restore protocol validated in `run_sweep_clean.sh`: pristine
   actor capture once per scene, `update_actors` restore before every invocation, PID-tracked
   teardown that waits for actual port release, staggered 4-lane start.
-- [ ] Similarly draft cleaned versions of any other script confirmed buggy above.
+- [x] Similarly draft cleaned versions of any other script confirmed buggy above. **Done
+  2026-08-28** (cloud routine, commit `<pending>`): drafted `run_positive_hunt_clean.sh`,
+  `parallel_benchmark_clean.sh`, `run_quant_sweep_clean.sh`, `run_quant_full_clean.sh`, and
+  `run_awq_clean.sh` in `closed_loop_harness/`, mirroring the capture-once/restore-before-every-
+  invocation protocol from `run_sweep_clean.sh`/`run_freedrive_clean.sh`. Drafts only — not run,
+  no GPU access from the cloud sandbox. See PROGRESS.md 2026-08-28 for detail per script.
 - [ ] Attempt to compile `papers/four_bits_without_loss.tex` and `papers/icra27_crossembodiment.tex`.
   Try a user-local LaTeX toolchain (e.g. `tectonic` via cargo, or check for a preinstalled
   `pdflatex`/`tectonic`) since neither was available as of 2026-08-26. Fix only compile errors —
