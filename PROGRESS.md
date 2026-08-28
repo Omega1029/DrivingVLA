@@ -67,3 +67,35 @@ between firings except what's pushed. Consequences:
 
 Proceeding to create the RemoteTrigger routine: claude-sonnet-5, once/day, repo
 github.com/Omega1029/DrivingVLA, branch auto/opendrivevla-verify.
+
+## 2026-08-27 10:05 — audit: all remaining closed-loop scripts share the renderer-reuse defect — FLAGGED
+
+Completed the cloud-queue audit item interactively (GPUs were idle and the free-drive re-run was
+starting anyway). Checked all five remaining scripts in `closed_loop_harness/external_reference/`.
+**All five have the defect.** Combined with the already-confirmed `run_benchmark_12.sh` and
+`run_freedrive.sh`, that means *every* closed-loop generation script in this project except the
+two written this week (`run_sweep_clean.sh`, `run_freedrive_clean.sh`) is contaminated.
+
+| script | renderer launched | configs looped inside | `/update_actors` restores | verdict |
+|---|---|---|---|---|
+| `run_positive_hunt.sh` | per-scene (`launch_lane "$s"`, L48) | yes (L49) | **0** | CONFIRMED BUGGY |
+| `parallel_benchmark.sh` | per-scene (L33-35) | yes (L41) | **0** | CONFIRMED BUGGY |
+| `run_quant_sweep.sh` | none — assumes live server on :8000 | yes (L21) | **0** | CONFIRMED BUGGY |
+| `run_quant_full.sh` | none — assumes live server on :8000 | yes | **0** | CONFIRMED BUGGY |
+| `run_awq.sh` | none — assumes live server on :8000 | sequential rollouts | **0** | CONFIRMED BUGGY |
+
+Two consequences worth escalating:
+
+1. **`run_positive_hunt.sh` generated the W8 / AWQ-W4 / W4A4+DCT numbers**, and its config order is
+   `w8 awq_w4_g128 w4a4_dct` — so W8 ran first on a clean renderer and both 4-bit variants ran on
+   mutated ones. Same structure as the adversarial benchmark's fp16-first ordering. This is likely
+   why W8 looked clean and the 4-bit recipes looked broken in that sweep too.
+2. **`run_awq.sh` calibrates the AWQ scales during a live rollout** on a renderer that may already
+   be mutated. If so, `logs/awq_scales.pt` was itself calibrated on contaminated activations — a
+   second-order contamination affecting any result that used AWQ mode, not just the scores. Flagged
+   for human review; not investigated further per AUTOLOOP rule (surprising findings get flagged,
+   not chased alone).
+
+No `.tex` file touched. Free-drive re-measurement under the restore protocol is running now
+(`run_freedrive_clean.sh`, 14 scenes x 4 configs x 10 seeds, GPUs 1-4); result will be a separate
+entry.

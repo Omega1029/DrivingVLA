@@ -78,15 +78,16 @@ Pull the next unclaimed `[ ]` item matching your execution mode; if none match, 
   (interactively, before the cloud routine existed): `launch_lane` once per scene, configs
   looped inside, no `update_actors` restore call anywhere in the file. Snapshot copied to
   `closed_loop_harness/external_reference/run_freedrive.sh`.
-- [ ] Audit the other five scripts in `closed_loop_harness/external_reference/` (`run_positive_hunt.sh`,
-  `run_awq.sh`, `run_quant_full.sh`, `run_quant_sweep.sh`, `parallel_benchmark.sh`) for the same
-  pattern: one renderer/server launched per scene, configs or seeds looped inside, no state
-  restore between them. Log each as confirmed-buggy, confirmed-clean, or inconclusive-why in
-  PROGRESS.md. One script per cycle is fine if time is short.
-- [ ] **Draft** (do not run — no GPU access) `run_freedrive_clean.sh`, mirroring the restore
-  protocol already validated in `closed_loop_harness/run_sweep_clean.sh` (capture pristine actor
-  state once per scene, `update_actors` restore before every invocation, PID-tracked teardown
-  that waits for actual port release). Only after the audit above confirms the bug.
+- [x] Audit the other five scripts in `closed_loop_harness/external_reference/`. **Done 2026-08-27**
+  (interactively). All five CONFIRMED BUGGY — see PROGRESS.md 2026-08-27 10:05 for the table.
+  Every closed-loop generation script in the project except `run_sweep_clean.sh` and
+  `run_freedrive_clean.sh` has the defect. Two escalations flagged there: `run_positive_hunt.sh`
+  ran W8 first (explaining why W8 looked clean and 4-bit didn't in that sweep), and `run_awq.sh`
+  may have calibrated `logs/awq_scales.pt` itself on contaminated activations.
+- [x] **Draft** `run_freedrive_clean.sh`. **Done 2026-08-27** (interactively — and run; see the
+  interactive queue). Mirrors the restore protocol validated in `run_sweep_clean.sh`: pristine
+  actor capture once per scene, `update_actors` restore before every invocation, PID-tracked
+  teardown that waits for actual port release, staggered 4-lane start.
 - [ ] Similarly draft cleaned versions of any other script confirmed buggy above.
 - [ ] Attempt to compile `papers/four_bits_without_loss.tex` and `papers/icra27_crossembodiment.tex`.
   Try a user-local LaTeX toolchain (e.g. `tectonic` via cargo, or check for a preinstalled
