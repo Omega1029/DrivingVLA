@@ -145,3 +145,46 @@ output dir changed, no force-push/off-branch-push patterns in the new scripts).
 Marked the queue item `[x]` in AUTOLOOP.md. Next unclaimed cloud-queue items: attempting to
 compile the two papers with a user-local LaTeX toolchain, and the two static-review items on
 `analysis/*.py` and `four_bits_without_loss.tex` vs. `RESULTS_clean_harness.md`.
+
+## 2026-08-29 — compile papers/four_bits_without_loss.tex and papers/icra27_crossembodiment.tex — PASS
+
+Cloud routine cycle. Picked the next unclaimed daily-queue item: attempt to compile the two
+papers, retrying the LaTeX toolchain question from 2026-08-26 (neither `pdflatex` nor `tectonic`
+was available then).
+
+This sandbox has `sudo apt-get` access to Ubuntu's `noble` archive (a couple of unrelated PPAs
+403'd, the main archive/security/updates mirrors did not), so installed a minimal toolchain
+rather than fighting `cargo install tectonic` through the proxy allowlist:
+`texlive-latex-base texlive-latex-extra texlive-fonts-recommended texlive-publishers`
+(`--no-install-recommends`). `texlive-publishers` was needed for the `IEEEtran` document class
+both papers use; `amsmath`/`amssymb`/`booktabs`/`graphicx`/`xcolor`/`hyperref` (the only other
+packages either file `\usepackage`s) are covered by latex-base/latex-extra.
+
+Compiled each paper twice with `pdflatex -interaction=nonstopmode -halt-on-error` into a scratch
+output dir (not the repo — build artifacts aren't being committed):
+
+- `four_bits_without_loss.tex`: pass 1 exit 0, produced a 4-page PDF; only warnings were
+  forward-reference "undefined on first pass" (expected before a second pass) and one cosmetic
+  `OT1/ptm/m/scit` font-shape substitution warning (IEEEtran + Times small-caps-italic, harmless,
+  falls back to plain italic). Pass 2 exit 0, zero undefined references, only the same font
+  warning.
+- `icra27_crossembodiment.tex`: pass 1 and pass 2 both exit 0, zero undefined references, same
+  cosmetic font warning (three occurrences, one per use).
+
+**No compile errors in either file** — no unbalanced environment, no broken `\ref`/`\label`, no
+missing package. Since rule 1 only permits fixing actual compile errors and there were none, **no
+`.tex` file was touched.** `git status` after the compile runs was clean (build output went to
+the scratch dir, not the working tree).
+
+Did not attempt `workshop1_openloop_blind.tex` or `workshop3_edge_memory.tex` — not in this
+queue item's scope (both already have committed PDFs; the queue item names only the two papers
+that don't: `four_bits_without_loss.tex` has no committed PDF, `icra27_crossembodiment.tex`'s
+existing committed PDF was not diffed against this run's output since that's outside what "attempt
+to compile" asked for).
+
+Marked the queue item `[x]` in AUTOLOOP.md. `analysis/verify_before_commit.sh` passed (no `.tex`
+staged, so checks 1 and 3 skip; no closed-loop output dir changed, so check 2 skips; no `.sh`
+changes; PASSED). Only `AUTOLOOP.md` and this `PROGRESS.md` entry are staged for commit. Next
+unclaimed cloud-queue items: the two static-review items on `analysis/*.py`'s bootstrap/outcome-
+classification correctness, and `four_bits_without_loss.tex`'s claims cross-checked sentence by
+sentence against `RESULTS_clean_harness.md`/`PROGRESS.md`/git log.

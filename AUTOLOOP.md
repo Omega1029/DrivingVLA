@@ -94,10 +94,12 @@ Pull the next unclaimed `[ ]` item matching your execution mode; if none match, 
   `run_awq_clean.sh` in `closed_loop_harness/`, mirroring the capture-once/restore-before-every-
   invocation protocol from `run_sweep_clean.sh`/`run_freedrive_clean.sh`. Drafts only — not run,
   no GPU access from the cloud sandbox. See PROGRESS.md 2026-08-28 for detail per script.
-- [ ] Attempt to compile `papers/four_bits_without_loss.tex` and `papers/icra27_crossembodiment.tex`.
-  Try a user-local LaTeX toolchain (e.g. `tectonic` via cargo, or check for a preinstalled
-  `pdflatex`/`tectonic`) since neither was available as of 2026-08-26. Fix only compile errors —
-  rule 1 still applies to content.
+- [x] Attempt to compile `papers/four_bits_without_loss.tex` and `papers/icra27_crossembodiment.tex`.
+  **Done 2026-08-29** (cloud routine, commit `<pending>`): installed `texlive-latex-base`,
+  `texlive-latex-extra`, `texlive-fonts-recommended`, `texlive-publishers` via apt (available in
+  this sandbox, unlike 2026-08-26). Both papers compiled cleanly with `pdflatex` — exit 0, two
+  passes each, zero errors, zero undefined references after the second pass. No compile errors
+  existed, so no `.tex` edits were made. See PROGRESS.md 2026-08-29 for detail.
 - [ ] Static review of `analysis/*.py`: correctness of the bootstrap CI math, the outcome
   classification logic (`brake_onset_ci.py`'s early/frozen/moving split — see the survivorship
   bug it already caught once, documented in its own comments), and whether
