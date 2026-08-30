@@ -188,3 +188,82 @@ changes; PASSED). Only `AUTOLOOP.md` and this `PROGRESS.md` entry are staged for
 unclaimed cloud-queue items: the two static-review items on `analysis/*.py`'s bootstrap/outcome-
 classification correctness, and `four_bits_without_loss.tex`'s claims cross-checked sentence by
 sentence against `RESULTS_clean_harness.md`/`PROGRESS.md`/git log.
+
+## 2026-08-30 13:19 — static review: analysis/*.py bootstrap/outcome-classification, RESULTS_clean_harness.md accuracy — FLAGGED
+
+Cloud routine cycle. Picked the next unclaimed daily-queue item: static, read-only review of
+`analysis/*.py` (bootstrap CI math, the early/frozen/moving outcome-classification logic, and
+whether `RESULTS_clean_harness.md` matches what `compare_clean_vs_archived.py` actually computes).
+No GPU/renderer access used or needed; no script was executed against real data (none is
+reachable from this sandbox) — this was pure code reading and cross-referencing.
+
+**Bootstrap CI math — no bug found.** `boot_ci`/`boot` (`brake_onset_ci.py`, `mechanism_all_configs.py`,
+`compare_clean_vs_archived.py`) all do a standard percentile bootstrap: resample-with-replacement
+means, `N_BOOT=10_000` times, take the values at `int(.025*n)`/`int(.975*n)` after sorting. That's
+a correct percentile bootstrap (the index vs. true-percentile offset is a fraction of a percent at
+n=10,000, not a bug). `brake_onset_ci.py::spearman` computes rank-based Pearson correlation with
+proper average-rank tie handling, which is a correct Spearman's rho implementation.
+
+**Outcome-classification logic — confirmed gap, same class as the bug the loop already fixed
+once.** `brake_onset_ci.py::reach_profile` (L33-42) and `mechanism_all_configs.py::load_run`
+(L36-51) build `p` by keeping only frames with `len(w) >= 6` waypoints, then check
+`len(p) < MIN_FRAMES` to classify a short rollout as `"early"` (the fix the file's own comment
+says was already made once, to stop excluding near-immediate crashes from the denominator as if
+they were missing data). But **that check only runs if `p` is non-empty** — `if not p: return
+None, False` (resp. `return None`) fires first when *every single frame* in the rollout is
+malformed. `main()`/`collect()` treat that `None` as "no run" and skip it entirely (`if p is None:
+continue`), so a rollout that produced zero valid frames — arguably the single worst outcome, a
+total generation collapse from frame one — is silently dropped from every denominator instead of
+being counted `"early"`. This is the exact survivorship pattern already caught and fixed for the
+1-4-valid-frame case, just not extended to the 0-valid-frame case. Because a dropped run can only
+ever be the worst-outcome case here (nothing else produces an empty profile), this can only bias a
+config's reported early-crash rate **downward** (looks better than it is), never upward. I cannot
+tell whether any real run actually hits zero valid frames — no run data is reachable from this
+sandbox — so I don't know whether this changes any committed number, only that the code has the
+gap. It's relevant because `analysis/W4_RECOVERY_PREP.md` cites exactly these early-crash-rate
+numbers from `mechanism_all_configs.py` (FP16 0.0%, W8 0.0%, group-W4 42.9%, AWQ-W4 37.5%,
+W4A4+DCT 32.5%) as load-bearing evidence for a strategic conclusion ("capacity-limited, not
+concentration-limited") — worth re-checking once the underlying run data can be inspected.
+Separately, `brake_diag.py::run_stats` (L28-29, `if len(reaches) < 5: return None`) still has the
+*pre-fix* version of this same bug in a broader form: it drops any run with 1-4 valid frames
+entirely (not just 0), rather than counting it as catastrophic the way `brake_onset_ci.py` now
+does. I found no committed number that currently depends on `brake_diag.py`'s output, but the live
+code would reproduce the same bug if it's run again.
+
+**Second, independent gap: onset-timing frame order.** `brake_onset_ci.py` (L39),
+`brake_timing.py` (L22), and `mechanism_all_configs.py` (L41) all build a run's reach-over-time
+profile via `sorted(traj.items())`. `traj` comes straight from `json.load`, so its keys are
+strings, and `sorted()` on `(str, value)` pairs sorts **lexicographically**, not numerically.
+`closed_loop_harness/plan_flythrough.py` (L64) has to write `sorted(d.keys(), key=lambda
+x:int(x))` to get chronological order — confirming `trajectories.json`'s keys are un-padded
+numeric strings ("0", "1", ..., "23", ...), which a lexicographic sort scrambles for any rollout
+with 10+ frames ("0","1","10","11",...,"19","2","20",...). Every onset-fraction number these three
+scripts compute (`classify()`'s `i/len(profile)`, `brake_timing.py::onset()`, `load_run`'s onset
+branch), and everything built on it — the paired onset-vs-FP16 deltas, the Spearman rho vs. NCAP
+score — is therefore computed against a scrambled, non-chronological frame order for any run with
+enough frames to hit two digits. The `max(profile)` frozen check and the frame-*count*-based
+`early`/`MIN_FRAMES` classification are unaffected, since neither depends on order. This does not
+currently corrupt a live claim: `FINDINGS.md`'s 2026-08-26 correction already voids "the
+braking-onset mechanism" for the unrelated renderer-reuse reason, and no `papers/*.tex` file
+mentions "onset" at all (grepped, zero matches) — so nothing in a paper rests on these numbers
+today. But whenever the onset/mechanism analysis is redone under the restored harness, this
+ordering bug needs a fix (sort by `int(key)`, not the raw string) first, or the redone numbers
+will be wrong again for a second, unrelated reason.
+
+**`RESULTS_clean_harness.md` vs. `compare_clean_vs_archived.py` — matches.** Traced `collect()`
+(groups per-run scores by `(scene, category)` -> config) through the per-scenario table, the
+per-config bootstrap over scenario-instance means, and the paired-difference bootstrap, against
+the committed markdown: column headers/order, the aggregate CI values' methodology, and the
+"ARCHIVED" column (a plain mean, no CI, and `--` for `w8` specifically because `benchmark12` — the
+only archive `ARCH` points at — never had a w8 arm) all line up with what the script would
+actually produce. No discrepancy found.
+
+No `.tex` file touched (this task doesn't concern any `.tex` file). No `analysis/*.py` file
+edited either: I did not have the underlying run data available in this sandbox to verify a fix
+produces correct output, and per the mission ("if a result is surprising, stop and flag it... not
+investigate further alone"), the two gaps above are flagged here for human review rather than
+patched blind. `analysis/verify_before_commit.sh` passed (no `.tex` staged, so checks 1/3 skip; no
+`RESULTS_clean_harness.md` change, so check 2 skips; no `.sh` changed). Only `AUTOLOOP.md` and this
+`PROGRESS.md` entry are staged. Next unclaimed cloud-queue item: cross-check
+`papers/four_bits_without_loss.tex`'s claims sentence-by-sentence against
+`analysis/RESULTS_clean_harness.md`/`PROGRESS.md`/git log.

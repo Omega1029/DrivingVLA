@@ -100,11 +100,25 @@ Pull the next unclaimed `[ ]` item matching your execution mode; if none match, 
   this sandbox, unlike 2026-08-26). Both papers compiled cleanly with `pdflatex` — exit 0, two
   passes each, zero errors, zero undefined references after the second pass. No compile errors
   existed, so no `.tex` edits were made. See PROGRESS.md 2026-08-29 for detail.
-- [ ] Static review of `analysis/*.py`: correctness of the bootstrap CI math, the outcome
+- [x] Static review of `analysis/*.py`: correctness of the bootstrap CI math, the outcome
   classification logic (`brake_onset_ci.py`'s early/frozen/moving split — see the survivorship
   bug it already caught once, documented in its own comments), and whether
   `RESULTS_clean_harness.md` accurately reflects what the scripts actually compute. This is
-  read-only review — do not re-run anything GPU/renderer-dependent.
+  read-only review — do not re-run anything GPU/renderer-dependent. **Done 2026-08-30
+  (cloud routine, commit `<pending>`)**: bootstrap CI math and Spearman rho are correct;
+  `RESULTS_clean_harness.md` matches `compare_clean_vs_archived.py`'s actual computation. Found
+  two flagged gaps, not fixed (no run data reachable from this sandbox to verify a fix): (1) a
+  zero-valid-frame rollout falls through the `MIN_FRAMES` early-classification fix and is
+  silently dropped from every denominator instead of counted `"early"`, in both
+  `brake_onset_ci.py` and `mechanism_all_configs.py` (the latter's early-crash numbers are cited
+  in `analysis/W4_RECOVERY_PREP.md`); `brake_diag.py` still has the unfixed, broader version of
+  this bug. (2) `brake_onset_ci.py`/`brake_timing.py`/`mechanism_all_configs.py` all sort
+  `trajectories.json` frames with plain `sorted(traj.items())`, which is lexicographic string
+  sort, not chronological — confirmed via `plan_flythrough.py`'s explicit `int()`-keyed sort —
+  scrambling onset-timing order for 10+ frame rollouts. Currently harmless (the braking-onset
+  mechanism claim is already voided by the renderer bug, and no `.tex` file mentions "onset") but
+  needs fixing before onset analysis is ever redone. See PROGRESS.md 2026-08-30 13:19 for full
+  detail.
 - [ ] Cross-check `papers/four_bits_without_loss.tex`'s claims against what's actually in
   `analysis/RESULTS_clean_harness.md`, `PROGRESS.md`, and the git log, sentence by sentence.
   Flag (do not fix) any claim that isn't traceable to committed evidence.
