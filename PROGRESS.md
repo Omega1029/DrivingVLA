@@ -267,3 +267,82 @@ patched blind. `analysis/verify_before_commit.sh` passed (no `.tex` staged, so c
 `PROGRESS.md` entry are staged. Next unclaimed cloud-queue item: cross-check
 `papers/four_bits_without_loss.tex`'s claims sentence-by-sentence against
 `analysis/RESULTS_clean_harness.md`/`PROGRESS.md`/git log.
+
+## 2026-08-31 — cross-check papers/four_bits_without_loss.tex claims against committed evidence — FLAGGED
+
+Cloud routine cycle. Picked the next (and last remaining) unclaimed daily-queue item: sentence-
+by-sentence cross-check of `papers/four_bits_without_loss.tex` against `analysis/RESULTS_clean_
+harness.md`, `PROGRESS.md`, `FINDINGS.md`, `RESULTS.md`, and the git log. Read-only; no GPU/
+renderer access used or needed.
+
+**Traces cleanly (no issue):**
+- Abstract + Table~\ref{tab:corrected}: FP16 4.81 [4.62,4.97], W8 4.81 [4.58,5.00], naive W4 4.71
+  [4.38,5.00], group W4 g128 4.86 [4.67,4.98], and all three paired deltas vs FP16 — match
+  `analysis/RESULTS_clean_harness.md` exactly (which itself was already verified against its
+  generating script on 2026-08-30). Per-scene rows in the same table match
+  `RESULTS_clean_harness.md`'s per-scenario table exactly, cell for cell.
+- Table~\ref{tab:position} (scene 0099 stationary: FP16 5.00/5.00, naive W4 1.43/5.00, group W4
+  0.00/5.00) matches commit `0791b63`'s message verbatim ("Scene 0099 stationary, 10 seeds --
+  archived scores follow execution order"), and the "restored renderer" column matches
+  `closed_loop_harness/run_sweep_clean.sh`'s own header comment ("Verified to reproduce the
+  archive exactly (0099 stationary FP16 -> 5.0, 33 actors)").
+- "168 backbone Linear layers (357.8M parameters)": matches `RESULTS.md:62-63`, `FINDINGS.md:37-
+  38`, `analysis/W4_RECOVERY_PREP.md:10,50`, `strategy/claude.md:180`, and is computed (not just
+  asserted) in `drivevla/inference_drivevla.py:154` and `orin/bench_planner_orin.py:144`
+  (`n_params/1e6:.1f}M params ... in the Qwen backbone`).
+- Table~\ref{tab:act} (activation quantization: FP16 0.595/42/0, W16A4 27.79(47x)/107/7, W16A4+DCT
+  0.646/42/0, W4A4 9.34/127/3, W4A4+DCT 0.611/41/0) matches `icra27/e1/README.md` exactly, cell
+  for cell, including the "47x" figure and the "42 (base rate)" framing.
+- "16 scene/scenario instances x 10 seeds": `run_sweep_clean.sh`'s `CATS` dict sums to exactly 16
+  instances across 12 scenes (0106/0108/0110/0278 each contribute 2 categories), `NRUNS` defaults
+  to 10; matches `RESULTS_clean_harness.md`'s `n=16` and `run_sweep_clean.sh 10` invocation named
+  in the paper's own provenance comment.
+- "Within a single evaluation invocation multiple seeds are safe, since all seeds share the
+  initialisation-time snapshot": correct per `run_sweep_clean.sh` L84-93 — actor restore happens
+  once via `curl POST /update_actors` immediately before a single `main.py --runs "$NRUNS"`
+  invocation, so all 10 seeds within that invocation do share one restored snapshot.
+- The Section~5/Limitations claims about scope (LIBERO claim dropped, activation results are
+  replay not closed-loop) match commit `b93e9d5` ("papers: scope to the driving VLA only, drop
+  the manipulation/LIBERO claim") and `FINDINGS.md`'s "Unaffected" list.
+
+**FLAGGED — real discrepancy, not just an untraceable claim.** Table~\ref{tab:corrected}'s "previously
+reported" column gives W8 = **4.50**. But `analysis/RESULTS_clean_harness.md` — the exact file the
+paper's own header comment cites as the source for "contaminated closed-loop" numbers
+(`output/benchmark12`) — shows **`--`** for w8's ARCHIVED cell, not 4.50, and the 2026-08-30 cycle
+already established why: benchmark12, the only archive `compare_clean_vs_archived.py` reads
+ARCHIVED from, never had a w8 arm at all. I could not find 4.50 derived or asserted anywhere else
+in committed history either (`RESULTS.md` has a single-seed W8 NCAP of 5.0 at scene 0103, not an
+aggregate; no other file computes a w8 aggregate over the benchmark12 scenes). `FINDINGS.md`'s
+correction-notice table (added in the same commit, `0791b63`) asserts the same 4.50, so this isn't
+a copy error introduced later — it's been wrong (or at least unsourced) since the original
+correction. This is exactly the kind of number this queue item exists to catch: a specific,
+citable-looking figure with no traceable computation behind it, sitting right next to three other
+numbers in the same table that do trace perfectly. Recommend a human check whether 4.50 comes from
+some pre-benchmark12 run not committed to this repo, or whether it should be `--`/omitted like the
+`RESULTS_clean_harness.md` cell it's supposed to mirror. Not fixed here per AUTOLOOP.md rule 1 (a
+correction to what the table asserts is a claim change, not a mechanical LaTeX fix) — flagged only.
+
+**FLAGGED — untraceable narrative claims (lower severity, no contradiction found, just no
+source).** Two specific-sounding numeric claims in Section~\ref{sec:mech}/\ref{sec:corrected} have
+no committed backing anywhere I could find (`output/` is gitignored, so the raw logs behind them,
+if they exist, were never committed):
+1. "Measured on scene 0099: a freshly loaded renderer reports 28 actors; after one evaluation it
+   reports 1; a subsequent evaluation initialised from that mutated state logged 60 actors,
+   against 33 in the reference run." Only "33" (the pristine/restored count) is corroborated,
+   by `run_sweep_clean.sh`'s header comment; 28, 1, and 60 appear nowhere else in git history,
+   including the original correction commit `0791b63`'s message, which gives the NCAP-score
+   version of this same scene/mechanism but not actor counts.
+2. "Cost is negligible---one HTTP request---against the 70--100\,s of reloading the renderer."
+   `run_sweep_clean.sh`'s `wait_up` polls up to 90x5s=450s worst case and stagger is 100s per
+   lane, but I found no committed measurement giving "70-100s" as the actual observed renderer
+   load time specifically.
+These are narrative texture, not headline results, and neither contradicts anything else in the
+repo — flagging per the letter of the queue item ("flag any claim that isn't traceable to
+committed evidence"), not because I believe them wrong.
+
+No `papers/*.tex` file was edited (per rule 1 — these are findings, not mechanical LaTeX fixes,
+even the W8 discrepancy). `analysis/verify_before_commit.sh` passed (no `.tex` staged, so checks
+1/3 skip; no `RESULTS_clean_harness.md` change, so check 2 skips; no `.sh` changed). Only
+`AUTOLOOP.md` and this `PROGRESS.md` entry are staged. This was the last unclaimed item in the
+daily cloud routine queue — the queue is now `[x]` in full except items requiring GPU access
+(interactive/local-only queue, out of scope for this loop).

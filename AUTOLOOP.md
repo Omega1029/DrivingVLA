@@ -119,9 +119,16 @@ Pull the next unclaimed `[ ]` item matching your execution mode; if none match, 
   mechanism claim is already voided by the renderer bug, and no `.tex` file mentions "onset") but
   needs fixing before onset analysis is ever redone. See PROGRESS.md 2026-08-30 13:19 for full
   detail.
-- [ ] Cross-check `papers/four_bits_without_loss.tex`'s claims against what's actually in
+- [x] Cross-check `papers/four_bits_without_loss.tex`'s claims against what's actually in
   `analysis/RESULTS_clean_harness.md`, `PROGRESS.md`, and the git log, sentence by sentence.
-  Flag (do not fix) any claim that isn't traceable to committed evidence.
+  Flag (do not fix) any claim that isn't traceable to committed evidence. **Done 2026-08-31
+  (cloud routine, commit `<pending>`)**: most claims trace cleanly (the two headline tables,
+  the 168-layer/357.8M-param count, the Table 3 activation numbers, the seeds-share-snapshot
+  claim). Found one real numeric discrepancy (Table 2's W8 "previously reported" = 4.50 has no
+  committed source and contradicts `RESULTS_clean_harness.md`'s own "--" for that cell) and two
+  narrative-only numeric claims with no committed backing (the 28/1/60/33 actor-count figures in
+  Section 3, the "70-100s" renderer-reload cost). No `.tex` file touched. See PROGRESS.md
+  2026-08-31 for full detail.
 
 ### Interactive/local-only queue (needs GPUs — do not attempt from the cloud routine)
 
