@@ -12,14 +12,12 @@
 %   corrected closed-loop    -> closed_loop_harness/run_sweep_clean.sh, output/remeasure_clean
 %   contaminated closed-loop -> output/benchmark12 (archived, run 2026-06-29)
 %   activation crossover     -> icra27/e1 (decoder-only replay; never touches the renderer)
-%   manipulation             -> OpenVLA-OFT / LIBERO pipeline (separate harness, NOT yet audited
-%                               for the same class of state-reuse bug -- see Limitations)
 %
 % Double-anonymous: the author block below must stay anonymised for submission.
 % ============================================================================
 
-\title{\textbf{A Phantom Collapse: Simulator State Contaminates\\
-Closed-Loop Evaluation of Quantized Driving Policies}}
+\title{\textbf{Weights Are Free, Activations Are the Wall:\\
+Quantizing Driving VLA Policies for Closed-Loop Safety}}
 
 \author{\IEEEauthorblockN{Anonymous Submission}
 \IEEEauthorblockA{Paper ID: XXXX}}
@@ -29,27 +27,37 @@ Closed-Loop Evaluation of Quantized Driving Policies}}
 
 
 \begin{abstract}
-Closed-loop simulation is increasingly treated as the trustworthy alternative to open-loop
-metrics for evaluating quantized vision--language--action (VLA) policies. We report a failure mode
-that undermines that assumption. In a photorealistic closed-loop driving benchmark
-(NeuroNCAP/NeuRAD), the render server is \emph{stateful}: an actor-update endpoint mutates the
-scene, and the evaluation engine reads the scene once at initialisation. A benchmark script that
-launches one renderer per scene and then loops quantization configurations inside it therefore
-gives only the \emph{first} configuration a clean scene. Because configurations are enumerated in
-a fixed order, the contamination is perfectly confounded with the treatment. In our own prior
-measurements this manufactured an apparent catastrophic 4-bit safety collapse---graded NCAP
-$4.41$ at FP16 against $2.62$ for every 4-bit recipe---that survived ten seeds, paired
-comparisons, bootstrap confidence intervals, and a full paper revision. It was an artifact.
-Re-measured with a state-restore protocol over $16$ scenario instances $\times\,10$ seeds,
-\textbf{naive per-channel INT4 is statistically indistinguishable from full precision}
-(paired $\Delta=-0.10$, $95\%$ CI $[-0.33,+0.12]$), as are INT8 and group-wise INT4. We give the
-diagnostic signature, a cheap fix, and a protocol for closed-loop quantization evaluation. We then
-show what \emph{does} break under 4-bit driving deployment---activation outliers, measured on a
-renderer-independent replay path and repaired by a single data-free rotation---and that the same
-axis governs a 7B manipulation policy. Our central claim is methodological: closed-loop evaluation
-is not automatically more trustworthy than open-loop evaluation, and a fixed enumeration order
-against a stateful simulator is sufficient to fabricate a large, stable, statistically significant
-effect that does not exist.
+Post-training quantization of vision--language--action (VLA) driving policies is usually validated
+on open-loop displacement error, a metric known not to predict closed-loop behaviour. Evaluating
+in closed loop instead, we find that \textbf{4-bit weight quantization is free}: on an
+impact-speed-graded closed-loop safety benchmark (NeuroNCAP/NeuRAD) over $16$ adversarial scenario
+instances $\times\,10$ seeds, naive per-channel INT4 scores $4.71$ ($95\%$ CI $[4.38,5.00]$)
+against full precision's $4.81$ $[4.62,4.97]$---a paired difference of $-0.10$, CI
+$[-0.33,+0.12]$. INT8 and group-wise INT4 are likewise statistically indistinguishable from FP16.
+Plain round-to-nearest at four bits, with no clipping search, codebook, error compensation or
+rotation, already matches full precision.
+
+Establishing this required controlling a simulator property we believe is underappreciated. The
+render server is \emph{stateful}: an actor-update endpoint mutates the scene, and the evaluation
+engine reads the scene once at initialisation. A harness that launches one renderer per scene and
+loops quantization configurations inside it therefore gives only the \emph{first} configuration a
+clean scene, and because configurations are enumerated in a fixed order the contamination is
+perfectly confounded with the treatment. Under that harness we, and an earlier version of this
+work, measured an apparent catastrophic 4-bit collapse---graded score $2.62$ against $4.41$ at
+FP16---that survived ten seeds, paired comparisons and bootstrap confidence intervals. It was an
+artifact; the deficit tracked run \emph{position}, not bit-width. We give the diagnostic
+signature, a near-free state-restore fix, and a protocol for closed-loop quantization studies.
+
+The weight axis being free does not make 4-bit deployment free. On a renderer-independent replay
+path, quantizing \emph{activations} to four bits with weights left untouched inflates planning
+error $47\times$ in-distribution---precisely where weight-only INT4 is lossless---and drives the
+rate of degenerate stay-put plans from $42/162$ to $107/162$. A single data-free orthogonal (DCT)
+rotation restores full-precision accuracy and returns the degenerate count to base rate. The
+practical conclusion is a division of labour: spend no effort on weight-grid engineering for
+this driving policy at four bits, and spend it all on activation outliers. The methodological
+conclusion is that closed-loop evaluation inherits the failure modes of the software it runs on,
+and buys trustworthiness over open-loop metrics only if simulator state is controlled as carefully
+as random seeds are.
 \end{abstract}
 \begin{IEEEkeywords}
 vision-language-action models, autonomous driving, post-training quantization, closed-loop
@@ -83,8 +91,11 @@ closed-loop safety at 4 bits, monotone in \emph{run position} rather than bit-wi
 \item A \emph{corrected measurement}: on a restored harness, INT8, naive INT4 and group-wise INT4
 are all statistically indistinguishable from FP16 on graded closed-loop safety.
 \item A validated, near-free \emph{fix} and an evaluation protocol for closed-loop PTQ studies.
-\item A renderer-independent characterisation of what does break at 4 bits---activation
-outliers---and evidence that the axis and its fix transfer to a 7B manipulation policy.
+\item A renderer-independent characterisation of what does break at 4 bits on this driving
+policy---activation outliers---measured on a replay path structurally immune to the contamination
+in Section~\ref{sec:mech} (Section~\ref{sec:activations}). Together with the corrected weight-axis
+result, this gives a division of labour for 4-bit driving deployment: weight grids need no
+engineering; activation outliers need a rotation.
 \end{itemize}
 
 \section{Setup}
@@ -150,7 +161,7 @@ hypothesis it is forced---group-wise simply ran third.
 existing logs without re-running anything: a contaminated run reports a different actor count from
 a freshly initialised one ($60$ vs $33$ here). We recommend logging and asserting it.
 
-\section{Corrected measurement}
+\section{Corrected measurement}\label{sec:corrected}
 \textbf{Fix.} After a fresh renderer launch, capture the pristine actor set once per scene, and
 \texttt{POST} it back before \emph{every} evaluation. This is validated: a fresh run and a
 restored run both reproduce $5.00$ with $33$ actors on 0099-stationary. Cost is negligible---one
@@ -187,11 +198,13 @@ here is weaker evidence than a null result on a metric with dynamic range. Secon
 variance is scenario and seed noise rather than quantization: FP16 itself scores $0.00$ on some
 seeds of 0108-side and 0346-frontal, exactly as the quantized configurations do.
 
-\section{What actually breaks at 4 bits}
-The corrected result should not be read as ``4-bit driving policies are safe.'' It says the
-\emph{weight} axis is not where this policy breaks. The activation axis is, and we measure it on a
-decoder-only replay path that never contacts the renderer and is therefore untouched by
-Section~\ref{sec:mech}: $162$ captured planner inputs replayed through the planner.
+\section{Weights are free; activations are the wall}
+\label{sec:activations}
+Section~\ref{sec:corrected} should not be read as ``4-bit driving policies are safe.'' It says the
+\emph{weight} axis is not where this policy breaks. The activation axis is, and this section
+measures it on a decoder-only replay path that never contacts the renderer and is therefore
+structurally immune to the contamination in Section~\ref{sec:mech}: $162$ captured planner inputs
+replayed through the planner directly (Table~\ref{tab:act}).
 
 \begin{table*}[t]\centering
 \caption{Activation quantization on the driving policy (decoder-only replay of $162$ real inputs;
@@ -213,11 +226,8 @@ W4A4, no rotation & $9.34$ & $127$ & $3$ \\
 Quantizing activations to $4$ bits with weights untouched inflates planning error $47\times$ and
 triples the rate of degenerate stay-put plans, in-distribution, where weight-only INT4 is
 lossless. A single data-free orthogonal (DCT-II) rotation, $y=(WQ^\top)(Qx)$, restores FP16-level
-accuracy and returns the degenerate-plan count to base rate. The same axis and the same fix govern
-a 7B manipulation policy (OpenVLA-OFT on LIBERO): weight-only INT4 is near-lossless
-($90.75\%$ vs $90.25\%$ bf16) while naive W4A4 collapses to $0\%$ and rotated W4A4 recovers
-$89.8\%$. Activation outliers, not weight granularity, are the binding constraint in both
-embodiments.
+accuracy and returns the degenerate-plan count to base rate. Activation outliers, not weight
+granularity, are the binding constraint on this policy at four bits.
 
 \section{A protocol for closed-loop PTQ evaluation}
 \begin{enumerate}
@@ -242,9 +252,17 @@ We document one mechanism in one simulator; we do not claim it generalises to CA
 non-reactive benchmarks, though the preconditions---mutable server state plus process reuse---are
 common. The corrected benchmark is near its ceiling, which limits the strength of our null result
 and means we cannot bound how much 4-bit damage a more discriminating driving benchmark would
-reveal. The activation results are in-distribution replay and are not themselves closed-loop.
-Each embodiment is a single checkpoint. Finally, closed-loop success throughout is measured with
-fake-quant weights, so we report no measured latency win.
+reveal. The activation results (Section~\ref{sec:activations}) are in-distribution replay and are 
+not
+themselves closed-loop; the title's second half is therefore a narrower claim than the
+first---weight-axis freedom is a closed-loop, safety-graded result, while the activation-axis wall
+is an accuracy result on a replay path. We scope this paper to the driving policy alone: an
+earlier draft additionally claimed the activation axis transfers to a 7B manipulation policy on a
+separate LIBERO harness, but given that a nominally identical statefulness bug produced a stable,
+false effect in our own driving benchmark (Section~\ref{sec:mech}), we do not include that claim
+here without first auditing the LIBERO harness for the same failure class. This policy is a single
+checkpoint. Finally, closed-loop success throughout is measured with fake-quant weights, so we
+report no measured latency win.
 
 \section{Conclusion}
 We set out to find a 4-bit quantization recipe that would recover closed-loop driving safety lost
